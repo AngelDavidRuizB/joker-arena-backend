@@ -1,0 +1,10 @@
+# ==============================================================================
+# JokerArena: Multiverse Poker Engine - E2E Acceptance Test Suite Dependencies
+# ==============================================================================
+requests>=2.31.0
+websockets>=12.0
+psycopg2-binary>=2.9.9
+pymongo>=4.6.0
+grpcio>=1.60.0
+grpcio-tools>=1.60.0
+pytest>=8.0.0

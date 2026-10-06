@@ -1,0 +1,46 @@
+flowchart TB
+    %% ===== Actor externo =====
+    U(["Jugador<br/>(Navegador web)"])
+
+    %% ===== Capa de Presentación =====
+    subgraph PRES["PRESENTACIÓN"]
+        FE["«component» jokerarena-fe<br/>TypeScript · React · Nginx<br/><i>lobby · tapete · consola telemetría · :3000</i>"]
+    end
+
+    %% ===== Capa de Lógica =====
+    subgraph LOG["LÓGICA"]
+        GE["«component» jokerarena-game-ms<br/>Go<br/><i>jugadores · salas · bot</i><br/><i>evaluador de manos · pipeline de Jokers</i><br/>:8080 (REST + WS)"]
+        TE["«component» jokerarena-telemetry-ms<br/>Python · FastAPI<br/><i>ingesta · historial · estadísticas</i><br/>:8000 (REST + SSE) · :50051 (gRPC)"]
+    end
+
+    %% ===== Capa de Datos =====
+    subgraph DAT["DATOS"]
+        PG[("«component» jokerarena-game-db<br/>PostgreSQL 16<br/><i>players · jokers · matches · match_players</i>")]
+        MG[("«component» jokerarena-telemetry-db<br/>MongoDB 7<br/><i>hand_events (append-only)</i>")]
+    end
+
+    %% ===== Conectores =====
+    U -->|"HTTP :3000"| FE
+
+    FE -->|"C1 · HTTP REST (JSON)"| GE
+    FE <-->|"C2 · WebSocket"| GE
+    FE -->|"C3 · HTTP REST (JSON)"| TE
+    TE -->|"C4 · SSE (text/event-stream)"| FE
+    GE -->|"C5 · gRPC (HTTP/2 + Protobuf)<br/>RecordHand · asíncrono con timeout"| TE
+    GE -->|"C6 · PostgreSQL wire (TCP 5432)"| PG
+    TE -->|"C7 · MongoDB wire (TCP 27017)"| MG
+
+    %% ===== Estilos por capa =====
+    classDef pres fill:#eff6ff,stroke:#1e40af,stroke-width:2px,color:#0f172a;
+    classDef logic fill:#f5f3ff,stroke:#6d28d9,stroke-width:2px,color:#0f172a;
+    classDef data fill:#f0fdf4,stroke:#15803d,stroke-width:2px,color:#0f172a;
+    classDef actor fill:#f1f5f9,stroke:#334155,stroke-width:1.5px,color:#0f172a;
+
+    class FE pres;
+    class GE,TE logic;
+    class PG,MG data;
+    class U actor;
+
+    style PRES fill:#eff6ff,stroke:#93c5fd,color:#1e3a8a
+    style LOG fill:#f5f3ff,stroke:#c4b5fd,color:#4c1d95
+    style DAT fill:#f0fdf4,stroke:#86efac,color:#14532d

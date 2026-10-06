@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package telemetry;
+
+option go_package = "github.com/jokerarena/game-ms/pkg/telemetry;telemetrypb";
+
+// Servicio gRPC C5: Game Engine (Go) -> Telemetry Service (Python)
+service TelemetryService {
+  rpc RecordHand(HandEventRequest) returns (HandEventResponse);
+  rpc HealthCheck(HealthRequest) returns (HealthResponse);
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  string status = 1;
+}
+
+message Card {
+  string rank = 1;      // "2".."10", "J", "Q", "K", "A"
+  string suit = 2;      // "SPADES", "HEARTS", "CLUBS", "DIAMONDS"
+  int32 chips = 3;      // Valor en fichas de la carta (ej. 10 para K, 11 para A)
+  bool scored = 4;      // true si la carta forma parte de la mano reconocida
+}
+
+message JokerScored {
+  string id = 1;             // "banner", "joker", "the_duo"
+  string name = 2;           // Nombre del Joker
+  string effect = 3;         // Descripción textual del efecto aplicado
+  int32 chips_added = 4;     // Fichas sumadas (ej. Banner)
+  int32 mult_added = 5;      // Multiplicador sumado (ej. Joker Clásico)
+  double mult_factor = 6;    // Multiplicador exponencial (ej. The Duo x2)
+}
+
+message ScoringBreakdown {
+  int32 base_chips = 1;
+  int32 base_mult = 2;
+  int32 card_chips = 3;
+  repeated JokerScored jokers = 4;
+  int32 final_chips = 5;
+  int32 final_mult = 6;
+  int32 score = 7;
+}
+
+message HandEventRequest {
+  string match_id = 1;
+  string player_id = 2;
+  int32 round_number = 3;
+  int32 hand_number = 4;
+  string poker_hand = 5;          // "HIGH_CARD", "PAIR", "TWO_PAIR", etc.
+  repeated Card cards_played = 6;
+  ScoringBreakdown scoring = 7;
+  int32 discards_left = 8;
+  int32 accumulated_score = 9;
+  string timestamp = 10;
+}
+
+message HandEventResponse {
+  bool success = 1;
+  string event_id = 2;
+  string message = 3;
+}

@@ -1,0 +1,138 @@
+services:
+  # ----------------------------------------------------------------------------
+  # 1. Base de Datos Relacional: PostgreSQL 16 (Game Engine DB)
+  # ----------------------------------------------------------------------------
+  jokerarena-game-db:
+    image: postgres:16-alpine
+    container_name: jokerarena-game-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-jokerarena_db}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d jokerarena_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - jokerarena-net
+
+  # ----------------------------------------------------------------------------
+  # 2. Base de Datos NoSQL: MongoDB 7 (Telemetry DB)
+  # ----------------------------------------------------------------------------
+  jokerarena-telemetry-db:
+    image: mongo:7
+    container_name: jokerarena-telemetry-db
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE:-jokerarena_telemetry}
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    volumes:
+      - mongodata:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "echo 'db.runCommand(\"ping\").ok' | mongosh localhost:27017/test --quiet || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - jokerarena-net
+
+  # ----------------------------------------------------------------------------
+  # 3. Lógica 2: Telemetry & Analytics Service (Python / FastAPI / gRPC)
+  # ----------------------------------------------------------------------------
+  jokerarena-telemetry-ms:
+    build:
+      context: ./jokerarena-telemetry-ms
+      dockerfile: Dockerfile
+    container_name: jokerarena-telemetry-ms
+    restart: unless-stopped
+    environment:
+      HTTP_PORT: 8000
+      GRPC_PORT: 50051
+      MONGO_URL: ${TELEMETRY_MONGO_URL:-mongodb://jokerarena-telemetry-db:27017}
+      MONGO_DB: ${MONGO_INITDB_DATABASE:-jokerarena_telemetry}
+    ports:
+      - "${TELEMETRY_HTTP_PORT:-8000}:8000"
+      - "${TELEMETRY_GRPC_PORT:-50051}:50051"
+    depends_on:
+      jokerarena-telemetry-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - jokerarena-net
+
+  # ----------------------------------------------------------------------------
+  # 4. Lógica 1: Game Engine & Session Manager (Go)
+  # ----------------------------------------------------------------------------
+  jokerarena-game-ms:
+    build:
+      context: ./jokerarena-game-ms
+      dockerfile: Dockerfile
+    container_name: jokerarena-game-ms
+    restart: unless-stopped
+    environment:
+      PORT: 8080
+      DB_URL: ${GAME_ENGINE_DB_URL:-postgres://postgres:postgres@jokerarena-game-db:5432/jokerarena_db?sslmode=disable}
+      TELEMETRY_GRPC_ADDR: ${TELEMETRY_GRPC_ADDR:-jokerarena-telemetry-ms:50051}
+    ports:
+      - "${GAME_ENGINE_PORT:-8080}:8080"
+    depends_on:
+      jokerarena-game-db:
+        condition: service_healthy
+      jokerarena-telemetry-ms:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - jokerarena-net
+
+  # ----------------------------------------------------------------------------
+  # 5. Presentación: Web Frontend Client (React / TypeScript / Nginx)
+  # ----------------------------------------------------------------------------
+  jokerarena-fe:
+    build:
+      context: ./jokerarena-fe
+      dockerfile: Dockerfile
+    container_name: jokerarena-fe
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      jokerarena-game-ms:
+        condition: service_started
+      jokerarena-telemetry-ms:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - jokerarena-net
+
+networks:
+  jokerarena-net:
+    driver: bridge
+
+volumes:
+  pgdata:
+  mongodata:
