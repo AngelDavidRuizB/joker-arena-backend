@@ -28,7 +28,7 @@ services:
   # 2. Base de Datos NoSQL: MongoDB 7 (Telemetry DB)
   # ----------------------------------------------------------------------------
   jokerarena-telemetry-db:
-    image: mongo:7
+    image: mongo:latest
     container_name: jokerarena-telemetry-db
     restart: unless-stopped
     environment:

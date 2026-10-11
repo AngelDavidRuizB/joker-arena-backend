@@ -1,0 +1,45 @@
+flowchart TB
+    subgraph CLI["COMPUTADOR DEL JUGADOR"]
+        BR["Navegador Web<br/><b>Interfaz de JokerArena</b><br/><i>Lobby · Mesa de cartas · Panel de telemetría</i>"]
+    end
+
+    subgraph HOST["SERVIDOR (Docker Compose · un solo comando: docker compose up)"]
+        subgraph NET["Red privada: jokerarena-net"]
+            FE["<b>Sitio Web</b><br/>Nginx + React<br/><i>Entrega la interfaz al jugador</i><br/>Puerto 3000"]
+            GE["<b>Servicio de Juego</b><br/>Go<br/><i>Salas · Reglas · Puntaje · Bot</i><br/>Puerto 8080"]
+            TE["<b>Servicio de Telemetría</b><br/>Python · FastAPI<br/><i>Registro y análisis de jugadas</i><br/>Puertos 8000 y 50051"]
+            PG[("<b>BD de Partidas</b><br/>PostgreSQL 16<br/><i>Jugadores · Salas · Resultados</i>")]
+            MG[("<b>BD de Jugadas</b><br/>MongoDB<br/><i>Historial detallado de manos</i>")]
+        end
+        VPG[/"Disco persistente<br/>datos de partidas"/]
+        VMG[/"Disco persistente<br/>datos de jugadas"/]
+        INIT[/"Script inicial<br/>crea tablas y Jokers"/]
+    end
+
+    BR -->|"1. Abre la página web"| FE
+    BR -->|"2. Crea sala y juega<br/>en tiempo real<br/>(REST + WebSocket)"| GE
+    BR -->|"3. Consulta estadísticas<br/>y recibe jugadas en vivo<br/>(REST + SSE)"| TE
+
+    GE -->|"4. Envía cada jugada<br/>(gRPC, sin bloquear el juego)"| TE
+    GE -->|"5. Guarda jugadores,<br/>salas y ganadores"| PG
+    TE -->|"6. Guarda el historial<br/>de cada mano"| MG
+
+    PG --- VPG
+    MG --- VMG
+    INIT -.->|"se carga al primer arranque"| PG
+
+    classDef client fill:#f1f5f9,stroke:#334155,stroke-width:2px,color:#0f172a;
+    classDef pres fill:#dbeafe,stroke:#1e40af,stroke-width:2px,color:#0f172a;
+    classDef logic fill:#ede9fe,stroke:#6d28d9,stroke-width:2px,color:#0f172a;
+    classDef data fill:#dcfce7,stroke:#15803d,stroke-width:2px,color:#0f172a;
+    classDef vol fill:#fef9c3,stroke:#a16207,stroke-width:1.5px,color:#0f172a;
+
+    class BR client;
+    class FE pres;
+    class GE,TE logic;
+    class PG,MG data;
+    class VPG,VMG,INIT vol;
+
+    style CLI fill:#f8fafc,stroke:#94a3b8,color:#0f172a
+    style HOST fill:#fafafa,stroke:#64748b,stroke-width:2px,color:#0f172a
+    style NET fill:#ffffff,stroke:#38bdf8,stroke-dasharray:5 5,color:#0c4a6e

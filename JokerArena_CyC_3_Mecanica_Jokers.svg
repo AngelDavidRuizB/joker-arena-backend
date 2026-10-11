@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="700" viewBox="0 0 1400 700" font-family="Segoe UI, Arial, sans-serif">
+<defs>
+<marker id="arr" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#222"/></marker>
+<marker id="arrS" markerWidth="10" markerHeight="8" refX="1" refY="4" orient="auto-start-reverse"><path d="M0,0 L10,4 L0,8 z" fill="#222"/></marker>
+</defs>
+<rect width="1400" height="700" fill="#fff"/>
+<text x="700" y="32" text-anchor="middle" font-size="22" font-weight="bold">Funcionalidad 3 — Mecánica de modificadores (Jokers)</text>
+<text x="700" y="56" text-anchor="middle" font-size="13" fill="#555">Cascada: (Chips Base + Chips Jokers) × (Mult Base + Mult Jokers) × Π(Mult Exponenciales)</text>
+<g transform="translate(40,660)" font-size="11"><rect x="0" y="-9" width="10" height="10" fill="#fff" stroke="#222" stroke-width="2"/><text x="16" y="0">Puerto</text>
+<line x1="70" y1="-4" x2="110" y2="-4" stroke="#222" stroke-width="2" marker-end="url(#arr)"/><text x="116" y="0">Conector</text>
+<line x1="190" y1="-4" x2="230" y2="-4" stroke="#222" stroke-width="2" stroke-dasharray="8 4" marker-end="url(#arr)"/><text x="236" y="0">Conector asíncrono / streaming</text></g>
+<rect x="520" y="110" width="380" height="271" rx="8" fill="#dcfce7" stroke="#2b7a2b" stroke-width="2"/>
+<text x="710.0" y="132" text-anchor="middle" font-size="13">«component»</text>
+<text x="710.0" y="152" text-anchor="middle" font-size="16" font-weight="bold">Game Engine &amp; Session Manager</text>
+<text x="710.0" y="169" text-anchor="middle" font-size="12">Go (:8080)</text>
+<text x="534" y="245" font-size="12">• internal/evaluator — mano detectada (p. ej. Par)</text>
+<text x="534" y="263" font-size="12">• internal/scoring — pipeline de puntuación</text>
+<text x="534" y="281" font-size="12">• internal/jokers — cascada de modificadores:</text>
+<text x="534" y="299" font-size="12">    Joker Clásico: +4 Mult (FLAT_MULT)</text>
+<text x="534" y="317" font-size="12">    Banner: +40 Chips x descarte (FLAT_CHIPS)</text>
+<text x="534" y="335" font-size="12">    The Duo: ×2 Mult si hay Par (EXP_MULT)</text>
+<text x="534" y="353" font-size="12">• internal/store — lectura del catálogo</text>
+<rect x="512" y="172" width="16" height="16" fill="#fff" stroke="#222" stroke-width="2"/>
+<text x="534" y="184" font-size="11">p_ws_srv</text>
+<rect x="892" y="172" width="16" height="16" fill="#fff" stroke="#222" stroke-width="2"/>
+<text x="886" y="184" text-anchor="end" font-size="11">p_sql_out</text>
+<rect x="40" y="110" width="300" height="199" rx="8" fill="#dbeafe" stroke="#2a5d9f" stroke-width="2"/>
+<text x="190.0" y="132" text-anchor="middle" font-size="13">«component»</text>
+<text x="190.0" y="152" text-anchor="middle" font-size="16" font-weight="bold">Web Frontend Client</text>
+<text x="190.0" y="169" text-anchor="middle" font-size="12">TypeScript / React (:3000)</text>
+<text x="54" y="245" font-size="12">• components/ (Tapete: animación ×Mult)</text>
+<text x="54" y="263" font-size="12">• hooks/ (WebSocket)</text>
+<text x="54" y="281" font-size="12">• state/ (ROOM_STATE_UPDATE)</text>
+<rect x="332" y="172" width="16" height="16" fill="#fff" stroke="#222" stroke-width="2"/>
+<text x="326" y="184" text-anchor="end" font-size="11">p_ws_io</text>
+<rect x="1090" y="110" width="250" height="181" rx="8" fill="#ffedd5" stroke="#a86a12" stroke-width="2"/>
+<text x="1215.0" y="132" text-anchor="middle" font-size="13">«datastore»</text>
+<text x="1215.0" y="152" text-anchor="middle" font-size="16" font-weight="bold">PostgreSQL</text>
+<text x="1215.0" y="169" text-anchor="middle" font-size="12">SQL relacional ACID (:5432)</text>
+<text x="1104" y="245" font-size="12">• jokers (id, name, modifier_type,</text>
+<text x="1104" y="263" font-size="12">   default_value) — catálogo estático</text>
+<rect x="1082" y="172" width="16" height="16" fill="#fff" stroke="#222" stroke-width="2"/>
+<text x="1104" y="184" font-size="11">p_sql_in</text>
+<polyline points="348,180 512,180" fill="none" stroke="#222" stroke-width="2" marker-start="url(#arrS)" marker-end="url(#arr)"/>
+<text x="430.0" y="164" text-anchor="middle" font-size="12" font-weight="bold" fill="#b00020">C2 · WebSocket</text>
+<text x="430.0" y="178" text-anchor="middle" font-size="11" fill="#444">jugada ⇄ puntaje con Jokers aplicados</text>
+<polyline points="908,180 1082,180" fill="none" stroke="#222" stroke-width="2" marker-end="url(#arr)"/>
+<text x="995.0" y="164" text-anchor="middle" font-size="12" font-weight="bold" fill="#b00020">C5 · TCP nativo PostgreSQL</text>
+<text x="995.0" y="178" text-anchor="middle" font-size="11" fill="#444">consulta del catálogo jokers</text>
+<rect x="40" y="420" width="860" height="62" fill="#fffde7" stroke="#bba800"/>
+<text x="50" y="439" font-size="11.5" font-weight="bold">Ejemplo verificado (sección 6.3)</text>
+<text x="50" y="455" font-size="11.5">Chips: 40 base + 38 de cartas = 78   |   Mult: 4 base + 4 (Joker Clásico) = 8, × 2 (The Duo, hay Par) = 16</text>
+<text x="50" y="471" font-size="11.5">Puntaje de la mano = 78 × 16 = 1248</text>
+</svg>

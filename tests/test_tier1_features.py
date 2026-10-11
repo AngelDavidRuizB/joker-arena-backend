@@ -49,22 +49,40 @@ class TestTier1Features(unittest.TestCase):
         cls.rest_client = RESTClient()
         cls.pg_client = PostgresTestClient()
         cls.mock_server = MockE2EServer()
+        cls._cached_ge_live = NetworkProbe.is_game_engine_live()
+        cls._cached_telemetry_live = NetworkProbe.is_telemetry_live()
+        cls._cached_frontend_live = NetworkProbe.is_frontend_live()
+        cls._cached_pg_live = cls.pg_client.is_live()
+
+        cls.telemetry_client = None
+        try:
+            import sys
+            from pathlib import Path
+            proj_root = Path(__file__).resolve().parent.parent
+            telemetry_path = str(proj_root / "jokerarena-telemetry-ms")
+            if telemetry_path not in sys.path:
+                sys.path.insert(0, telemetry_path)
+            from starlette.testclient import TestClient
+            from app.main import app as fastapi_app
+            cls.telemetry_client = TestClient(fastapi_app, raise_server_exceptions=False)
+        except Exception:
+            cls.telemetry_client = None
 
     @property
     def is_game_engine_live(self) -> bool:
-        return NetworkProbe.is_game_engine_live()
+        return self._cached_ge_live
 
     @property
     def is_telemetry_live(self) -> bool:
-        return NetworkProbe.is_telemetry_live()
+        return self._cached_telemetry_live
 
     @property
     def is_frontend_live(self) -> bool:
-        return NetworkProbe.is_frontend_live()
+        return self._cached_frontend_live
 
     @property
     def is_pg_live(self) -> bool:
-        return self.pg_client.is_live()
+        return self._cached_pg_live
 
     # ==========================================================================
     # Feature 1: Multi-Container 5-Service Orchestration Ping & Health
@@ -248,15 +266,18 @@ class TestTier1Features(unittest.TestCase):
 
     def test_f04_03_telemetry_health_reports_mongo_connected(self):
         """F4.3: Telemetry service healthcheck validates MongoDB connectivity."""
-        if not self.is_telemetry_live and not is_mock_mode():
-            self.skipTest("Telemetry service not running")
         if self.is_telemetry_live:
             res = self.rest_client.get_telemetry_health()
             self.assertEqual(res.status_code, 200)
             data = res.json()
             self.assertIn("mongo", data.get("database", "mongo"))
+        elif self.telemetry_client:
+            res = self.telemetry_client.get("/health")
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertIn("mongo", data.get("database", "mongo"))
         else:
-            self.assertTrue(True)
+            self.skipTest("Telemetry service not running and in-process client unavailable")
 
     def test_f04_04_mongodb_telemetry_collection_ready(self):
         """F4.4: Telemetry collection is ready for audit writes."""
@@ -279,56 +300,64 @@ class TestTier1Features(unittest.TestCase):
 
     def test_f05_01_telemetry_health_endpoint_http_200(self):
         """F5.1: GET /health on telemetry service returns HTTP 200 OK."""
-        if not self.is_telemetry_live and not is_mock_mode():
-            self.skipTest("Telemetry service not running")
         if self.is_telemetry_live:
             res = self.rest_client.get_telemetry_health()
             self.assertEqual(res.status_code, 200)
+        elif self.telemetry_client:
+            res = self.telemetry_client.get("/health")
+            self.assertEqual(res.status_code, 200)
         else:
-            self.assertTrue(True)
+            self.skipTest("Telemetry service not running and in-process client unavailable")
 
     def test_f05_02_telemetry_docs_endpoint_http_200(self):
         """F5.2: GET /docs returns Swagger UI HTML documentation."""
-        if not self.is_telemetry_live and not is_mock_mode():
-            self.skipTest("Telemetry service not running")
         if self.is_telemetry_live:
             res = self.rest_client.get_telemetry_docs()
             self.assertEqual(res.status_code, 200)
             self.assertIn("swagger", res.text.lower())
+        elif self.telemetry_client:
+            res = self.telemetry_client.get("/docs")
+            self.assertEqual(res.status_code, 200)
+            self.assertIn("swagger", res.text.lower())
         else:
-            self.assertTrue(True)
+            self.skipTest("Telemetry service not running and in-process client unavailable")
 
     def test_f05_03_telemetry_openapi_json(self):
         """F5.3: GET /openapi.json returns valid OpenAPI 3 specification."""
-        if not self.is_telemetry_live and not is_mock_mode():
-            self.skipTest("Telemetry service not running")
         if self.is_telemetry_live:
             res = self.rest_client.get_telemetry_openapi()
             self.assertEqual(res.status_code, 200)
             schema = res.json()
             self.assertIn("openapi", schema)
+        elif self.telemetry_client:
+            res = self.telemetry_client.get("/openapi.json")
+            self.assertEqual(res.status_code, 200)
+            schema = res.json()
+            self.assertIn("openapi", schema)
         else:
-            self.assertTrue(True)
+            self.skipTest("Telemetry service not running and in-process client unavailable")
 
     def test_f05_04_telemetry_json_content_type(self):
         """F5.4: GET /health returns Content-Type application/json."""
-        if not self.is_telemetry_live and not is_mock_mode():
-            self.skipTest("Telemetry service not running")
         if self.is_telemetry_live:
             res = self.rest_client.get_telemetry_health()
             self.assertIn("application/json", res.headers.get("Content-Type", ""))
+        elif self.telemetry_client:
+            res = self.telemetry_client.get("/health")
+            self.assertIn("application/json", res.headers.get("Content-Type", ""))
         else:
-            self.assertTrue(True)
+            self.skipTest("Telemetry service not running and in-process client unavailable")
 
     def test_f05_05_telemetry_health_payload_schema(self):
         """F5.5: /health response payload contains 'status': 'ok'."""
-        if not self.is_telemetry_live and not is_mock_mode():
-            self.skipTest("Telemetry service not running")
         if self.is_telemetry_live:
             res = self.rest_client.get_telemetry_health()
             self.assertEqual(res.json().get("status"), "ok")
+        elif self.telemetry_client:
+            res = self.telemetry_client.get("/health")
+            self.assertEqual(res.json().get("status"), "ok")
         else:
-            self.assertTrue(True)
+            self.skipTest("Telemetry service not running and in-process client unavailable")
 
     # ==========================================================================
     # Feature 6: Telemetry gRPC Contract (proto/telemetry.proto)

@@ -105,9 +105,9 @@ class TestM2Telemetry(unittest.TestCase):
         cls.is_live_grpc = NetworkProbe.probe_telemetry_grpc()
         cls.mock_mode = is_mock_mode()
 
-        # In-process FastAPI client if live server is not active
+        # In-process FastAPI client if live server is not active or mock mode is requested
         cls.local_client = None
-        if not cls.is_live_http and TESTCLIENT_AVAILABLE:
+        if TESTCLIENT_AVAILABLE:
             try:
                 from app.main import app as fastapi_app
                 cls.local_client = TestClient(fastapi_app, raise_server_exceptions=False)
@@ -120,7 +120,7 @@ class TestM2Telemetry(unittest.TestCase):
 
     def test_01_telemetry_health_endpoint_status_200(self):
         """M2.1: FastAPI /health responds with HTTP 200 and valid JSON."""
-        if self.is_live_http:
+        if self.is_live_http and not self.mock_mode:
             res = self.rest_client.get("/health")
             self.assertEqual(res.status_code, 200)
             self.assertIn("application/json", res.headers.get("Content-Type", "").lower())
@@ -137,19 +137,24 @@ class TestM2Telemetry(unittest.TestCase):
             self.assertEqual(data.get("service"), "jokerarena-telemetry-ms")
             self.assertIn("mongodb", data)
         elif self.mock_mode:
-            mock_health = {
-                "status": "ok",
-                "service": "jokerarena-telemetry-ms",
-                "mongodb": "fallback",
-            }
-            self.assertEqual(mock_health["status"], "ok")
-            self.assertEqual(mock_health["service"], "jokerarena-telemetry-ms")
+            if TESTCLIENT_AVAILABLE:
+                from app.main import app as fastapi_app
+                client = TestClient(fastapi_app, raise_server_exceptions=False)
+                res = client.get("/health")
+                self.assertEqual(res.status_code, 200)
+                self.assertIn("application/json", res.headers.get("Content-Type", "").lower())
+                data = res.json()
+                self.assertEqual(data.get("status"), "ok")
+                self.assertEqual(data.get("service"), "jokerarena-telemetry-ms")
+                self.assertIn("mongodb", data)
+            else:
+                self.skipTest("TestClient unavailable in mock_mode")
         else:
             self.skipTest(f"Live telemetry service on {TELEMETRY_HTTP_URL} not running and local client unavailable")
 
     def test_02_telemetry_health_content_contract(self):
         """M2.2: /health JSON contains required fields: status, service, mongodb."""
-        if self.is_live_http:
+        if self.is_live_http and not self.mock_mode:
             res = self.rest_client.get("/health")
             data = res.json()
             for key in ["status", "service", "mongodb"]:
@@ -160,9 +165,15 @@ class TestM2Telemetry(unittest.TestCase):
             for key in ["status", "service", "mongodb"]:
                 self.assertIn(key, data, f"Key '{key}' missing from /health response")
         elif self.mock_mode:
-            mock_data = {"status": "ok", "service": "jokerarena-telemetry-ms", "mongodb": "fallback"}
-            for key in ["status", "service", "mongodb"]:
-                self.assertIn(key, mock_data)
+            if TESTCLIENT_AVAILABLE:
+                from app.main import app as fastapi_app
+                client = TestClient(fastapi_app, raise_server_exceptions=False)
+                res = client.get("/health")
+                data = res.json()
+                for key in ["status", "service", "mongodb"]:
+                    self.assertIn(key, data, f"Key '{key}' missing from /health response")
+            else:
+                self.skipTest("TestClient unavailable in mock_mode")
         else:
             self.skipTest("Live telemetry service not running and local client unavailable")
 
@@ -188,7 +199,7 @@ class TestM2Telemetry(unittest.TestCase):
                 "swagger" in res.text.lower() or "openapi" in res.text.lower() or "<!doctype html>" in res.text.lower()
             )
         else:
-            self.assertTrue(True)
+            self.skipTest(f"Live telemetry service on {TELEMETRY_HTTP_URL} not running and local client unavailable")
 
     def test_04_telemetry_openapi_spec_valid(self):
         """M2.4: /openapi.json returns valid JSON schema describing the service."""
@@ -207,7 +218,7 @@ class TestM2Telemetry(unittest.TestCase):
             self.assertIn("paths", data)
             self.assertIn("/health", data["paths"])
         else:
-            self.assertTrue(True)
+            self.skipTest(f"Live telemetry service on {TELEMETRY_HTTP_URL} not running and local client unavailable")
 
     # ==========================================================================
     # 3. gRPC Telemetry Server :50051 HealthCheck
@@ -239,7 +250,7 @@ class TestM2Telemetry(unittest.TestCase):
             resp = asyncio.run(servicer.HealthCheck(telemetry_pb2.HealthRequest(), None))
             self.assertEqual(resp.status, "ok")
         else:
-            self.assertTrue(True)
+            self.skipTest("Live gRPC server and Protobuf stubs not available in current runtime")
 
     # ==========================================================================
     # 4. gRPC RecordHand RPC & Event Persistence
@@ -333,7 +344,7 @@ class TestM2Telemetry(unittest.TestCase):
             self.assertTrue(len(response.event_id) > 0)
             self.assertIn("success", response.message.lower())
         else:
-            self.assertTrue(True)
+            self.skipTest("Live gRPC server and Protobuf stubs not available in current runtime")
 
     # ==========================================================================
     # 5. Fallback & Fault Tolerance Verification (MongoDB Offline)
@@ -352,7 +363,63 @@ class TestM2Telemetry(unittest.TestCase):
             data = res.json()
             self.assertEqual(data.get("status"), "ok")
         else:
-            self.assertTrue(True)
+            self.skipTest(f"Live telemetry service on {TELEMETRY_HTTP_URL} not running and local client unavailable")
+
+    def test_09_unscored_hand_event_rest_and_get_hands(self):
+        """M2.9: Verifies unscored hand event can be ingested and listed via GET /telemetry/hands without ValidationError."""
+        unscored_payload = {
+            "match_id": str(uuid.uuid4()),
+            "player_id": str(uuid.uuid4()),
+            "round_number": 1,
+            "hand_number": 1,
+            "poker_hand": "HIGH_CARD",
+            "cards_played": [
+                {"rank": "A", "suit": "SPADES", "chips": 11, "scored": True}
+            ],
+            "scoring": {},
+            "discards_left": 2,
+            "accumulated_score": 11,
+            "timestamp": "2026-10-06T15:30:00Z"
+        }
+        client = self.rest_client if self.is_live_http else self.local_client
+        if client:
+            res_post = client.post("/telemetry/hands", json=unscored_payload)
+            self.assertEqual(res_post.status_code, 201)
+            post_data = res_post.json()
+            self.assertTrue(post_data.get("success"))
+            event_id = post_data.get("event_id")
+
+            res_list = client.get(f"/telemetry/hands?match_id={unscored_payload['match_id']}")
+            self.assertEqual(res_list.status_code, 200)
+            list_data = res_list.json()
+            self.assertGreaterEqual(list_data.get("total", 0), 1)
+            hands = list_data.get("hands", [])
+            self.assertGreaterEqual(len(hands), 1)
+            self.assertEqual(hands[0].get("poker_hand"), "HIGH_CARD")
+            self.assertEqual(hands[0].get("scoring", {}).get("base_chips"), 0)
+
+            res_get = client.get(f"/telemetry/hands/{event_id}")
+            self.assertEqual(res_get.status_code, 200)
+            single_data = res_get.json()
+            self.assertEqual(single_data.get("event_id"), event_id)
+        else:
+            self.skipTest("Neither live service nor local client is available")
+
+    def test_10_concurrent_health_requests_resilience(self):
+        """M2.10: Verifies repeated/concurrent healthcheck requests do not hang or starve event loop."""
+        import time
+        client = self.rest_client if self.is_live_http else self.local_client
+        if client:
+            start_time = time.monotonic()
+            for _ in range(20):
+                res = client.get("/health")
+                self.assertEqual(res.status_code, 200)
+                self.assertEqual(res.json().get("status"), "ok")
+            elapsed = time.monotonic() - start_time
+            # 20 health checks in sequence should finish well within 2.0s
+            self.assertLess(elapsed, 2.0, f"Health requests took too long: {elapsed:.2f}s")
+        else:
+            self.skipTest("Neither live service nor local client is available")
 
 
 if __name__ == "__main__":

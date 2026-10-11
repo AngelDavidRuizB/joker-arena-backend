@@ -1,0 +1,159 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="960" viewBox="0 0 1400 960" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="arr" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#222"/></marker>
+    <marker id="arrS" markerWidth="10" markerHeight="8" refX="1" refY="4" orient="auto-start-reverse"><path d="M0,0 L10,4 L0,8 z" fill="#222"/></marker>
+  </defs>
+  <rect width="1400" height="960" fill="#ffffff"/>
+  <text x="700" y="30" text-anchor="middle" font-size="22" font-weight="bold">JokerArena — Vista de Componentes y Conectores (C&amp;C)</text>
+
+  <!-- Tiers -->
+  <rect x="20" y="50" width="350" height="830" fill="#eef6ff" stroke="#7aa7d9" stroke-dasharray="6 4"/>
+  <text x="195" y="70" text-anchor="middle" font-size="14" font-weight="bold" fill="#2a5d9f">A. PRESENTACIÓN (Client Tier)</text>
+  <rect x="470" y="50" width="480" height="870" fill="#f1fbf1" stroke="#7bbf7b" stroke-dasharray="6 4"/>
+  <text x="710" y="70" text-anchor="middle" font-size="14" font-weight="bold" fill="#2b7a2b">B. LÓGICA DE NEGOCIO (Application Services Tier)</text>
+  <rect x="1050" y="50" width="330" height="830" fill="#fff6e9" stroke="#e0a85a" stroke-dasharray="6 4"/>
+  <text x="1215" y="70" text-anchor="middle" font-size="14" font-weight="bold" fill="#a86a12">C. PERSISTENCIA POLÍGLOTA (Data Tier)</text>
+
+  <!-- Frontend -->
+  <rect x="40" y="90" width="300" height="570" rx="8" fill="#dbeafe" stroke="#2a5d9f" stroke-width="2"/>
+  <text x="190" y="115" text-anchor="middle" font-size="16" font-weight="bold">«component»</text>
+  <text x="190" y="135" text-anchor="middle" font-size="16" font-weight="bold">Web Frontend Client</text>
+  <text x="190" y="153" text-anchor="middle" font-size="12">TypeScript / React + Tailwind CSS (SPA, :3000)</text>
+  <g font-size="12">
+    <text x="60" y="290" font-weight="bold">Módulos internos (frontend/src/)</text>
+    <text x="60" y="312">• components/ (Tapete, Mano, Cartas, Lobby)</text>
+    <text x="60" y="332">• components/TelemetryPanel</text>
+    <text x="60" y="352">• hooks/ (conexión WebSocket y SSE)</text>
+    <text x="60" y="372">• services/api (cliente REST)</text>
+    <text x="60" y="392">• state/ y types/ (PLAY_HAND, DISCARD_CARDS,</text>
+    <text x="72" y="408">ROOM_STATE_UPDATE)</text>
+    <text x="60" y="440" font-weight="bold">Responsabilidad</text>
+    <text x="60" y="460">Renderiza tapete, animaciones y panel</text>
+    <text x="60" y="476">dual de telemetría. Cliente liviano:</text>
+    <text x="60" y="492">no valida reglas (servidor autoritativo).</text>
+  </g>
+  <!-- frontend ports -->
+  <rect x="332" y="185" width="16" height="16" fill="#fff" stroke="#222" stroke-width="2"/>
+  <text x="326" y="214" text-anchor="end" font-size="11">p_rest_out</text>
+  <rect x="332" y="245" width="16" height="16" fill="#fff" stroke="#222" stroke-width="2"/>
+  <text x="326" y="274" text-anchor="end" font-size="11">p_ws_io</text>
+  <rect x="332" y="552" width="16" height="16" fill="#fff" stroke="#222" stroke-width="2"/>
+  <text x="326" y="545" text-anchor="end" font-size="11">p_sse_in</text>
+
+  <!-- Game Engine -->
+  <rect x="520" y="90" width="380" height="410" rx="8" fill="#dcfce7" stroke="#2b7a2b" stroke-width="2"/>
+  <text x="710" y="115" text-anchor="middle" font-size="16" font-weight="bold">«component»</text>
+  <text x="710" y="135" text-anchor="middle" font-size="16" font-weight="bold">Game Engine &amp; Session Manager</text>
+  <text x="710" y="153" text-anchor="middle" font-size="12">Go / Golang (:8080) — servidor autoritativo</text>
+  <g font-size="12">
+    <text x="545" y="290" font-weight="bold">Paquetes internos (game-engine/)</text>
+    <text x="545" y="310">• internal/api — handlers REST, /health</text>
+    <text x="545" y="328">• internal/ws — servidor WebSocket (/ws), broadcast</text>
+    <text x="545" y="346">• internal/room — Session Manager (goroutine/sala, Bot)</text>
+    <text x="545" y="364">• internal/deck — baraja francesa de 52 cartas</text>
+    <text x="545" y="382">• internal/evaluator — reconocimiento de manos</text>
+    <text x="545" y="400">• internal/scoring + internal/jokers — Chips × Mult</text>
+    <text x="545" y="418">• internal/telemetry — cliente HTTP asíncrono</text>
+    <text x="545" y="436">• internal/store — acceso a PostgreSQL (pgx)</text>
+    <text x="545" y="460">• cmd/server/main.go — punto de entrada</text>
+  </g>
+  <!-- GE ports -->
+  <rect x="512" y="185" width="16" height="16" fill="#fff" stroke="#222" stroke-width="2"/>
+  <text x="534" y="214" font-size="11">p_rest_srv</text>
+  <rect x="512" y="245" width="16" height="16" fill="#fff" stroke="#222" stroke-width="2"/>
+  <text x="534" y="274" font-size="11">p_ws_srv</text>
+  <rect x="892" y="185" width="16" height="16" fill="#fff" stroke="#222" stroke-width="2"/>
+  <text x="886" y="214" text-anchor="end" font-size="11">p_sql_out</text>
+  <rect x="702" y="492" width="16" height="16" fill="#fff" stroke="#222" stroke-width="2"/>
+  <text x="726" y="486" font-size="11">p_async_dispatch</text>
+
+  <!-- Telemetry -->
+  <rect x="520" y="620" width="380" height="270" rx="8" fill="#dcfce7" stroke="#2b7a2b" stroke-width="2"/>
+  <text x="710" y="645" text-anchor="middle" font-size="16" font-weight="bold">«component»</text>
+  <text x="710" y="665" text-anchor="middle" font-size="16" font-weight="bold">Telemetry &amp; Analytics Service</text>
+  <text x="710" y="683" text-anchor="middle" font-size="12">Python / FastAPI (:8000)</text>
+  <g font-size="12">
+    <text x="545" y="775" font-weight="bold">Módulos internos (telemetry-service/app/)</text>
+    <text x="545" y="795">• main.py — FastAPI, Swagger (/docs)</text>
+    <text x="545" y="811">• Ruta de ingesta — POST JSON de jugadas</text>
+    <text x="545" y="827">• Ruta de streaming — /api/telemetry/stream (SSE)</text>
+    <text x="545" y="843">• Servicio de analítica — métricas agregadas</text>
+    <text x="545" y="859">• Repositorio Mongo — cliente motor (async)</text>
+  </g>
+  <!-- Tel ports -->
+  <rect x="702" y="612" width="16" height="16" fill="#fff" stroke="#222" stroke-width="2"/>
+  <text x="726" y="650" font-size="11" dy="-2">p_ingest_rest</text>
+  <rect x="512" y="722" width="16" height="16" fill="#fff" stroke="#222" stroke-width="2"/>
+  <text x="534" y="751" font-size="11">p_sse_out</text>
+  <rect x="892" y="722" width="16" height="16" fill="#fff" stroke="#222" stroke-width="2"/>
+  <text x="886" y="751" text-anchor="end" font-size="11">p_mongo_out</text>
+
+  <!-- PostgreSQL -->
+  <rect x="1090" y="110" width="250" height="180" rx="8" fill="#ffedd5" stroke="#a86a12" stroke-width="2"/>
+  <text x="1215" y="140" text-anchor="middle" font-size="15" font-weight="bold">«datastore»</text>
+  <text x="1215" y="160" text-anchor="middle" font-size="16" font-weight="bold">PostgreSQL</text>
+  <text x="1215" y="178" text-anchor="middle" font-size="12">SQL relacional ACID (:5432)</text>
+  <g font-size="12">
+    <text x="1110" y="215">• jokers (catálogo)</text>
+    <text x="1110" y="233">• players (cuentas, total_victories)</text>
+    <text x="1110" y="251">• matches (registro de partidas)</text>
+    <text x="1110" y="275" font-style="italic" font-size="11">Propiedad exclusiva del Game Engine</text>
+  </g>
+  <rect x="1082" y="185" width="16" height="16" fill="#fff" stroke="#222" stroke-width="2"/>
+  <text x="1104" y="198" font-size="11" dx="0" dy="-8">p_sql_in</text>
+
+  <!-- MongoDB -->
+  <rect x="1090" y="640" width="250" height="180" rx="8" fill="#ffedd5" stroke="#a86a12" stroke-width="2"/>
+  <text x="1215" y="670" text-anchor="middle" font-size="15" font-weight="bold">«datastore»</text>
+  <text x="1215" y="690" text-anchor="middle" font-size="16" font-weight="bold">MongoDB</text>
+  <text x="1215" y="708" text-anchor="middle" font-size="12">NoSQL documental (:27017)</text>
+  <g font-size="12">
+    <text x="1110" y="745">• colección hand_telemetry</text>
+    <text x="1110" y="763">• Audit Trail Ledger inmutable</text>
+    <text x="1110" y="787" font-style="italic" font-size="11">Propiedad exclusiva del Telemetry Service</text>
+  </g>
+  <rect x="1082" y="722" width="16" height="16" fill="#fff" stroke="#222" stroke-width="2"/>
+  <text x="1104" y="718" font-size="11">p_mongo_in</text>
+
+  <!-- CONNECTORS -->
+  <g stroke="#222" stroke-width="2" fill="none">
+    <!-- C1 -->
+    <line x1="348" y1="193" x2="512" y2="193" marker-end="url(#arr)"/>
+    <!-- C2 -->
+    <line x1="348" y1="253" x2="512" y2="253" marker-start="url(#arrS)" marker-end="url(#arr)"/>
+    <!-- C3 SSE -->
+    <polyline points="512,730 430,730 430,560 348,560" stroke-dasharray="8 4" marker-end="url(#arr)"/>
+    <!-- C4 -->
+    <line x1="710" y1="508" x2="710" y2="612" stroke-dasharray="3 3" marker-end="url(#arr)"/>
+    <!-- C5 -->
+    <line x1="908" y1="193" x2="1082" y2="193" marker-end="url(#arr)"/>
+    <!-- C6 -->
+    <line x1="908" y1="730" x2="1082" y2="730" marker-end="url(#arr)"/>
+  </g>
+  <g font-size="12" font-weight="bold" fill="#b00020">
+    <text x="430" y="182" text-anchor="middle">C1 · HTTP REST (JSON)</text>
+    <text x="430" y="242" text-anchor="middle">C2 · WebSocket (RFC 6455)</text>
+    <text x="412" y="650" text-anchor="end">C3 · SSE (text/event-stream)</text>
+    <text x="700" y="555" text-anchor="end">C4 · HTTP REST asíncrono</text>
+    <text x="995" y="182" text-anchor="middle">C5 · TCP nativo PG (pgx)</text>
+    <text x="995" y="719" text-anchor="middle">C6 · Mongo Wire (BSON)</text>
+  </g>
+  <g font-size="11" fill="#444">
+    <text x="430" y="206" text-anchor="middle">síncrono: salas, auth</text>
+    <text x="430" y="266" text-anchor="middle">PLAY_HAND, DISCARD_CARDS, ROOM_STATE_UPDATE</text>
+    <text x="412" y="666" text-anchor="end">telemetría en vivo (unidireccional)</text>
+    <text x="700" y="570" text-anchor="end">en goroutine, no bloqueante</text>
+    <text x="995" y="206" text-anchor="middle">pool de conexiones</text>
+    <text x="995" y="743" text-anchor="middle">insert/consulta de documentos</text>
+  </g>
+
+  <!-- Leyenda -->
+  <rect x="1060" y="840" width="0" height="0"/>
+  <g transform="translate(1062,900)" font-size="11">
+    <rect x="-12" y="-22" width="318" height="70" fill="#fff" stroke="#999"/>
+    <text x="0" y="-6" font-weight="bold">Leyenda</text>
+    <rect x="0" y="2" width="10" height="10" fill="#fff" stroke="#222" stroke-width="2"/><text x="16" y="11">Puerto</text>
+    <line x1="70" y1="7" x2="110" y2="7" stroke="#222" stroke-width="2" marker-end="url(#arr)"/><text x="116" y="11">Conector síncrono/continuo</text>
+    <line x1="0" y1="30" x2="40" y2="30" stroke="#222" stroke-width="2" stroke-dasharray="8 4" marker-end="url(#arr)"/><text x="46" y="34">SSE / asíncrono (punteado)</text>
+  </g>
+</svg>

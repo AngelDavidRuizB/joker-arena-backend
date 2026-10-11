@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import uuid
@@ -58,6 +59,13 @@ class MongoManager:
             logger.info("Successfully connected to MongoDB.")
             await self._ensure_indexes()
         except Exception as exc:
+            if self.client is not None:
+                try:
+                    self.client.close()
+                except Exception:
+                    pass
+            self.client = None
+            self.db = None
             self.is_connected = False
             logger.warning(f"MongoDB connection failed ({exc}). Operating in resilient fallback mode.")
 
@@ -77,11 +85,10 @@ class MongoManager:
 
     async def ping(self) -> bool:
         """Pings MongoDB with a short timeout to check health."""
-        if not self.client or not MOTOR_AVAILABLE:
-            self.is_connected = False
+        if not self.is_connected or self.client is None or not MOTOR_AVAILABLE:
             return False
         try:
-            await self.client.admin.command("ping", maxTimeMS=1000)
+            await asyncio.wait_for(self.client.admin.command("ping"), timeout=0.2)
             self.is_connected = True
             return True
         except Exception:
@@ -92,7 +99,10 @@ class MongoManager:
         """Closes Motor client pool."""
         if self.client:
             logger.info("Closing MongoDB connection pool...")
-            self.client.close()
+            try:
+                self.client.close()
+            except Exception:
+                pass
             self.client = None
             self.db = None
             self.is_connected = False

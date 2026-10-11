@@ -47,8 +47,6 @@ class TelemetryServiceServicer(telemetry_pb2_grpc.TelemetryServiceServicer):
                 for c in request.cards_played
             ]
 
-            jokers = []
-            scoring_dict = {}
             if request.HasField("scoring"):
                 jokers = [
                     {
@@ -70,6 +68,8 @@ class TelemetryServiceServicer(telemetry_pb2_grpc.TelemetryServiceServicer):
                     "final_mult": request.scoring.final_mult,
                     "score": request.scoring.score,
                 }
+            else:
+                scoring_dict = {}
 
             doc = {
                 "event_id": event_id,

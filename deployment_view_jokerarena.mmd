@@ -1,0 +1,59 @@
+flowchart TB
+    %% ===== Nodo cliente =====
+    subgraph CLI["«device» Equipo del usuario"]
+        BR["«execution environment» Navegador Web<br/>SPA React (TypeScript)<br/><i>Lobby · Tapete · Consola de telemetría</i>"]
+    end
+
+    %% ===== Nodo host =====
+    subgraph HOST["«device» Host Docker (Docker Engine 24+ · Docker Compose v2+)"]
+
+        subgraph NET["Red virtual bridge: jokerarena-net"]
+            FE["«container» jokerarena-fe<br/>Nginx + SPA estática<br/><i>build: ./jokerarena-fe</i><br/>:80 interno"]
+            GE["«container» jokerarena-game-ms<br/>Go · REST + WebSocket<br/><i>build: ./jokerarena-game-ms</i><br/>:8080"]
+            TE["«container» jokerarena-telemetry-ms<br/>Python · FastAPI · gRPC<br/><i>build: ./jokerarena-telemetry-ms</i><br/>:8000 (REST + SSE) · :50051 (gRPC)"]
+            PG[("«container» jokerarena-game-db<br/>postgres:16-alpine<br/>:5432")]
+            MG[("«container» jokerarena-telemetry-db<br/>mongo:latest<br/>:27017")]
+        end
+
+        VPG[/"«volume» pgdata<br/>/var/lib/postgresql/data"/]
+        VMG[/"«volume» mongodata<br/>/data/db"/]
+        INIT[/"«bind mount, ro» db/postgres/init.sql<br/>/docker-entrypoint-initdb.d/"/]
+    end
+
+    %% ===== Acceso desde el navegador (puertos publicados en el host) =====
+    BR -->|"HTTP · host :3000 → :80"| FE
+    BR -->|"C1 REST · C2 WebSocket<br/>host :8080 → :8080"| GE
+    BR -->|"C3 REST · C4 SSE<br/>host :8000 → :8000"| TE
+
+    %% ===== Comunicación interna entre contenedores =====
+    GE -->|"C5 · gRPC HTTP/2<br/>jokerarena-telemetry-ms:50051"| TE
+    GE -->|"C6 · PostgreSQL wire<br/>jokerarena-game-db:5432"| PG
+    TE -->|"C7 · MongoDB wire<br/>jokerarena-telemetry-db:27017"| MG
+
+    %% ===== Persistencia =====
+    PG --- VPG
+    MG --- VMG
+    INIT -.->|"seed inicial"| PG
+
+    %% ===== Orden de arranque (depends_on) =====
+    MG -. "healthy" .-> TE
+    PG -. "healthy" .-> GE
+    TE -. "started" .-> GE
+    GE -. "started" .-> FE
+    TE -. "started" .-> FE
+
+    classDef client fill:#f1f5f9,stroke:#334155,stroke-width:1.5px,color:#0f172a;
+    classDef pres fill:#eff6ff,stroke:#1e40af,stroke-width:2px,color:#0f172a;
+    classDef logic fill:#f5f3ff,stroke:#6d28d9,stroke-width:2px,color:#0f172a;
+    classDef data fill:#f0fdf4,stroke:#15803d,stroke-width:2px,color:#0f172a;
+    classDef vol fill:#fefce8,stroke:#a16207,stroke-width:1.5px,color:#0f172a;
+
+    class BR client;
+    class FE pres;
+    class GE,TE logic;
+    class PG,MG data;
+    class VPG,VMG,INIT vol;
+
+    style CLI fill:#f8fafc,stroke:#94a3b8,color:#0f172a
+    style HOST fill:#fafafa,stroke:#64748b,stroke-width:2px,color:#0f172a
+    style NET fill:#ffffff,stroke:#38bdf8,stroke-dasharray:5 5,color:#0c4a6e

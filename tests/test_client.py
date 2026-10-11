@@ -124,7 +124,8 @@ class RESTClient:
 
     def post(self, endpoint: str, json_data: dict = None, **kwargs) -> requests.Response:
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
-        return self.session.post(url, json=json_data, timeout=kwargs.pop("timeout", self.timeout), **kwargs)
+        payload = json_data if json_data is not None else kwargs.pop("json", None)
+        return self.session.post(url, json=payload, timeout=kwargs.pop("timeout", self.timeout), **kwargs)
 
     # Game Engine endpoints
     def get_game_engine_health(self) -> requests.Response:

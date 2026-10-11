@@ -17,6 +17,12 @@ router = APIRouter(prefix="/telemetry", tags=["Telemetry"])
 
 
 def doc_to_response(doc: dict) -> HandEventResponse:
+    scoring_data = doc.get("scoring")
+    if not isinstance(scoring_data, dict):
+        scoring_data = {}
+    cards_data = doc.get("cards_played")
+    if not isinstance(cards_data, list):
+        cards_data = []
     return HandEventResponse(
         event_id=doc.get("event_id", str(doc.get("_id", ""))),
         match_id=doc.get("match_id", ""),
@@ -24,8 +30,8 @@ def doc_to_response(doc: dict) -> HandEventResponse:
         round_number=doc.get("round_number", 1),
         hand_number=doc.get("hand_number", 1),
         poker_hand=doc.get("poker_hand", ""),
-        cards_played=doc.get("cards_played", []),
-        scoring=doc.get("scoring", {}),
+        cards_played=cards_data,
+        scoring=scoring_data,
         discards_left=doc.get("discards_left", 0),
         accumulated_score=doc.get("accumulated_score", 0),
         timestamp=doc.get("timestamp", ""),
