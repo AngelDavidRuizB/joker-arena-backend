@@ -23,12 +23,45 @@ except ImportError:
     MOTOR_AVAILABLE = False
 
 
+def _redact_url(url: str) -> str:
+    """Hides credentials of a MongoDB URL so they never reach the logs."""
+    if "@" not in url or "://" not in url:
+        return url
+    scheme, rest = url.split("://", 1)
+    return f"{scheme}://***:***@{rest.rsplit('@', 1)[1]}"
+
+
+def with_compat_fields(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """Adds the casino_games `hands` document fields (roomId, playerId, handNumber,
+    cardsDealt, result, finalHandCards) derived from the hand-event fields, keeping the
+    original telemetry fields (match_id, scoring, ...) intact."""
+    out = dict(doc)
+    out.setdefault("roomId", doc.get("match_id", ""))
+    out.setdefault("playerId", doc.get("player_id", ""))
+    out.setdefault("handNumber", doc.get("hand_number", 0))
+    cards = doc.get("cards_played") or []
+    out.setdefault(
+        "cardsDealt",
+        [{"rank": c.get("rank", ""), "suit": c.get("suit", "")} for c in cards if isinstance(c, dict)],
+    )
+    scoring = doc.get("scoring") or {}
+    if isinstance(scoring, dict) and "score" in scoring:
+        out.setdefault("result", doc.get("poker_hand", ""))
+    return out
+
+
 class MongoManager:
     """Async MongoDB manager using Motor with seamless offline fallback."""
 
-    def __init__(self, mongo_url: Optional[str] = None, db_name: Optional[str] = None):
+    def __init__(
+        self,
+        mongo_url: Optional[str] = None,
+        db_name: Optional[str] = None,
+        collection_name: Optional[str] = None,
+    ):
         self.mongo_url = mongo_url or settings.MONGO_URL
         self.db_name = db_name or settings.MONGO_DB
+        self.collection_name = collection_name or settings.MONGO_COLLECTION
         self.client: Optional[AsyncIOMotorClient] = None
         self.db: Optional[AsyncIOMotorDatabase] = None
         self.is_connected: bool = False
@@ -45,7 +78,10 @@ class MongoManager:
             return
 
         try:
-            logger.info(f"Connecting to MongoDB at {self.mongo_url} (db: {self.db_name})...")
+            logger.info(
+                f"Connecting to MongoDB at {_redact_url(self.mongo_url)} "
+                f"(db: {self.db_name}, collection: {self.collection_name})..."
+            )
             self.client = AsyncIOMotorClient(
                 self.mongo_url,
                 serverSelectionTimeoutMS=2000,
@@ -70,18 +106,19 @@ class MongoManager:
             logger.warning(f"MongoDB connection failed ({exc}). Operating in resilient fallback mode.")
 
     async def _ensure_indexes(self):
-        """Creates indexes on hand_events collection idempotently."""
+        """Creates indexes on the hands collection idempotently."""
         if self.db is None:
             return
         try:
-            coll = self.db["hand_events"]
+            coll = self.db[self.collection_name]
             await coll.create_index("match_id")
             await coll.create_index("player_id")
             await coll.create_index([("match_id", 1), ("round_number", 1), ("hand_number", 1)])
             await coll.create_index([("timestamp", -1)])
-            logger.info("MongoDB indexes verified on hand_events collection.")
+            await coll.create_index([("roomId", 1), ("handNumber", 1)])
+            logger.info(f"MongoDB indexes verified on {self.collection_name} collection.")
         except Exception as exc:
-            logger.warning(f"Failed to create indexes on hand_events: {exc}")
+            logger.warning(f"Failed to create indexes on {self.collection_name}: {exc}")
 
     async def ping(self) -> bool:
         """Pings MongoDB with a short timeout to check health."""
@@ -109,7 +146,7 @@ class MongoManager:
 
     def get_collection(self) -> Optional[AsyncIOMotorCollection]:
         if self.is_connected and self.db is not None:
-            return self.db["hand_events"]
+            return self.db[self.collection_name]
         return None
 
     async def record_event(self, event_data: Dict[str, Any]) -> str:
@@ -123,9 +160,9 @@ class MongoManager:
 
         if self.is_connected and self.db is not None:
             try:
-                coll = self.db["hand_events"]
-                # Create a document copy without modifying input
-                doc = dict(event_data)
+                coll = self.db[self.collection_name]
+                # Create a document copy (with casino_games compatibility fields) without modifying input
+                doc = with_compat_fields(event_data)
                 res = await coll.insert_one(doc)
                 return event_data["event_id"]
             except Exception as exc:
@@ -145,7 +182,7 @@ class MongoManager:
         q = query or {}
         if self.is_connected and self.db is not None:
             try:
-                coll = self.db["hand_events"]
+                coll = self.db[self.collection_name]
                 total = await coll.count_documents(q)
                 cursor = coll.find(q, {"_id": 0}).sort("timestamp", -1).skip(skip).limit(limit)
                 events = [doc async for doc in cursor]
@@ -172,7 +209,7 @@ class MongoManager:
         """Retrieves single hand event by event_id."""
         if self.is_connected and self.db is not None:
             try:
-                coll = self.db["hand_events"]
+                coll = self.db[self.collection_name]
                 doc = await coll.find_one({"event_id": event_id}, {"_id": 0})
                 if doc:
                     return doc
@@ -188,7 +225,7 @@ class MongoManager:
         """Summarizes distinct matches."""
         if self.is_connected and self.db is not None:
             try:
-                coll = self.db["hand_events"]
+                coll = self.db[self.collection_name]
                 pipeline = [
                     {
                         "$group": {
@@ -241,7 +278,7 @@ class MongoManager:
         """Returns all hand events for a match sorted sequentially."""
         if self.is_connected and self.db is not None:
             try:
-                coll = self.db["hand_events"]
+                coll = self.db[self.collection_name]
                 cursor = coll.find({"match_id": match_id}, {"_id": 0}).sort(
                     [("round_number", 1), ("hand_number", 1), ("timestamp", 1)]
                 )

@@ -263,8 +263,8 @@ def test_healthcheck_and_proxy_contracts() -> list[ChallengeResult]:
     r_pg_hc = ChallengeResult("3.3 PostgreSQL Healthcheck Hardcoded Credentials")
     pg_svc = services.get("jokerarena-game-db", {})
     pg_hc = " ".join(pg_svc.get("healthcheck", {}).get("test", []))
-    if "-U postgres -d jokerarena_db" in pg_hc:
-        r_pg_hc.ok("PostgreSQL healthcheck command uses 'pg_isready -U postgres -d jokerarena_db'")
+    if "pg_isready" in pg_hc and "POSTGRES_USER" in pg_hc and "POSTGRES_DB" in pg_hc:
+        r_pg_hc.ok("PostgreSQL healthcheck uses pg_isready with credentials taken from the container environment")
     else:
         r_pg_hc.fail("LOW", f"Unexpected postgres healthcheck: {pg_hc}")
     results.append(r_pg_hc)

@@ -112,8 +112,8 @@ flowchart TB
     end
 
     subgraph DAT["CAPA DE DATOS (PERSISTENCIA POLÍGLOTA)"]
-        PG[("«component» jokerarena-game-db<br/>PostgreSQL 16<br/><i>players · jokers · matches · match_players</i><br/><i>:5432</i>")]
-        MG[("«component» jokerarena-telemetry-db<br/>MongoDB 7<br/><i>hand_events (documentos inmutables)</i><br/><i>:27017</i>")]
+        PG[("«component» jokerarena-game-db<br/>PostgreSQL 16 · appdb<br/><i>players · rooms · matches</i><br/><i>:5432</i>")]
+        MG[("«component» jokerarena-telemetry-db<br/>MongoDB 7 · casino_games<br/><i>hands (documentos inmutables)</i><br/><i>:27017</i>")]
     end
 
     U -->|"HTTP :3000"| FE
@@ -158,10 +158,10 @@ flowchart TB
 | Componente | Tipo | Tecnología | Puertos Expuestos / Utilizados | Responsabilidades |
 |---|---|---|---|---|
 | **`jokerarena-fe`** | Presentación | TypeScript, React 18, Vite, Tailwind CSS, Nginx | `p_http_in` (3000)<br/>`p_rest_out`<br/>`p_ws_io`<br/>`p_sse_in` | Renderizar interfaz reactiva: registro de alias, lobby de salas, tapete interactivo de cartas, botones de acción y panel lateral dual de telemetría en vivo. |
-| **`jokerarena-game-ms`** | Lógica | Go 1.23, `net/http`, `gorilla/websocket`, `google.golang.org/grpc`, `pgx/v5` | `p_rest_srv` (8080)<br/>`p_ws_srv` (8080/ws)<br/>`p_grpc_client`<br/>`p_sql_out` | Autoridad central de la partida: sesiones de sala en memoria (goroutines/canales), barajado determinista, evaluación de manos, aplicación de Jokers, bot simulado y despacho asíncrono a telemetría. |
+| **`jokerarena-game-ms`** | Lógica | Go 1.22, `net/http`, `gorilla/websocket` v1.5.3, `pgx/v5` (cliente gRPC hacia telemetría: F6, fuera de esta entrega) | `p_rest_srv` (8080)<br/>`p_ws_srv` (8080/ws)<br/>`p_sql_out` | Autoridad central de la partida: una goroutine por sala (patrón actor con canales), barajado determinista con semilla, evaluación de las 9 manos, cascada de Jokers (Banner → Joker Clásico → The Duo), persistencia en PostgreSQL y difusión de estado a los clientes WebSocket. |
 | **`jokerarena-telemetry-ms`** | Lógica | Python 3.12, FastAPI, `grpcio`, `motor` (async Mongo) | `p_grpc_srv` (50051)<br/>`p_rest_srv` (8000)<br/>`p_sse_out` (8000/stream)<br/>`p_mongo_out` | Receptor de telemetría vía gRPC, inserción asíncrona no bloqueante de eventos inmutables en MongoDB, cálculo de agregaciones estadísticas y difusión en streaming SSE hacia los clientes. |
 | **`jokerarena-game-db`** | Persistencia Relacional | PostgreSQL 16 (Alpine) | `p_sql_in` (5432) | Persistencia relacional ACID: registro de jugadores, catálogo estático de Jokers, sesiones maestras de partidas y puntajes finales. |
-| **`jokerarena-telemetry-db`** | Persistencia NoSQL | MongoDB 7 | `p_mongo_in` (27017) | Almacenamiento documental flexible de auditoría (*Audit Trail Ledger*): colección `hand_events` con esquema flexible optimizado para escritura intensiva. |
+| **`jokerarena-telemetry-db`** | Persistencia NoSQL | MongoDB 7 | `p_mongo_in` (27017) | Almacenamiento documental flexible de auditoría (*Audit Trail Ledger*): colección `hands` de la base `casino_games` con esquema flexible optimizado para escritura intensiva. |
 
 #### 3.1.4. Relaciones y Conectores de Comunicación
 
@@ -187,14 +187,15 @@ flowchart TB
 
 #### 3.2.1. Conector C1: API REST del Game Engine (HTTP/1.1 JSON)
 
-* **`POST /api/players`** — Registrar alias de jugador
+* **`POST /api/players`** — Registrar alias de jugador (el alias se guarda en `players.username`; el id es el `id_player` SERIAL de PostgreSQL, expuesto como cadena)
   * *Request Body:* `{"alias": "JokerPro99"}`
-  * *Response (201 Created):* `{"id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11", "alias": "JokerPro99", "created_at": "2026-10-12T19:00:00Z"}`
-* **`POST /api/rooms`** — Crear sala de juego
-  * *Request Body:* `{"player_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11", "target_score": 300, "with_bot": true}`
-  * *Response (201 Created):* `{"room_code": "JKR-402", "match_id": "8f1c7d2e-3b5a-49c1-8d2a-112233445566", "status": "WAITING"}`
-* **`GET /api/rooms/{code}`** — Consultar estado de sala
-  * *Response (200 OK):* `{"room_code": "JKR-402", "status": "IN_PROGRESS", "player_count": 2, "target_score": 300}`
+  * *Response (201 Created, o 200 OK si el alias ya existía):* `{"id": "12", "alias": "JokerPro99", "created_at": "2026-10-12T19:00:00Z"}`
+* **`POST /api/rooms`** — Crear sala de juego (`target_score` entre 1 y 100000, por defecto 300; `with_bot` por defecto `true`)
+  * *Request Body:* `{"player_id": "12", "target_score": 300, "with_bot": true}`
+  * *Response (201 Created):* `{"room_code": "JKR-A7K2", "match_id": "31", "target_score": 300, "status": "WAITING", "with_bot": true, "players": ["12", "bot"]}`
+* **`GET /api/rooms/{code}`** — Consultar estado de sala (búsqueda insensible a mayúsculas; 404 si no existe)
+  * *Response (200 OK):* `{"room_code": "JKR-A7K2", "status": "IN_PROGRESS", "player_count": 2, "target_score": 300, "hands_left": 3, "discards_left": 3, "current_score": 520, "deck_count": 40, "cards_in_hand": [...]}`
+* **`GET /health`** — `200 {"status":"ok","postgres":"connected"}`; si PostgreSQL no responde devuelve `503` (`"status":"degraded"`), sin simular que persiste.
 
 #### 3.2.2. Conector C2: Protocolo WebSocket (Bidireccional RFC 6455)
 
@@ -207,7 +208,7 @@ Estructura de sobre estándar (*Envelope*):
 ```
 
 * **Mensajes Cliente $\rightarrow$ Servidor:**
-  1. `JOIN_ROOM`: `{"type": "JOIN_ROOM", "payload": {"room_code": "JKR-402", "player_id": "uuid-jugador"}}`
+  1. `JOIN_ROOM`: `{"type": "JOIN_ROOM", "payload": {"room_code": "JKR-A7K2", "player_id": "12"}}` (debe ser el primer mensaje; también se admite `?player_id=` en la URL).
   2. `PLAY_HAND`: `{"type": "PLAY_HAND", "payload": {"card_indices": [0, 1, 3, 4]}}` (índices de cartas seleccionadas de la mano, 1 a 5).
   3. `DISCARD_CARDS`: `{"type": "DISCARD_CARDS", "payload": {"card_indices": [2, 5]}}` (descartar hasta 5 cartas).
 * **Mensajes Servidor $\rightarrow$ Clientes:**
@@ -216,7 +217,7 @@ Estructura de sobre estándar (*Envelope*):
      {
        "type": "ROOM_STATE_UPDATE",
        "payload": {
-         "room_code": "JKR-402",
+         "room_code": "JKR-A7K2",
          "target_score": 300,
          "hands_left": 3,
          "discards_left": 2,
@@ -226,22 +227,49 @@ Estructura de sobre estándar (*Envelope*):
            {"rank": "10", "suit": "HEARTS", "chips": 10}
          ],
          "deck_count": 44,
-         "active_jokers": ["banner", "joker", "the_duo"]
+         "active_jokers": ["banner", "joker", "the_duo"],
+         "status": "IN_PROGRESS",
+         "hand_number": 1,
+         "with_bot": true,
+         "host_id": "12",
+         "players": [{"id": "12", "alias": "JokerPro99", "is_bot": false}, {"id": "bot", "alias": "Bot-JokerBot", "is_bot": true}]
        }
      }
      ```
-  2. `MATCH_FINISHED`:
+  2. `HAND_SCORED`: auditoría algebraica exacta de la mano jugada (se emite justo antes del `ROOM_STATE_UPDATE` resultante):
+     ```json
+     {
+       "type": "HAND_SCORED",
+       "payload": {
+         "room_code": "JKR-A7K2", "player_id": "12", "hand_number": 1, "accumulated_score": 1248,
+         "poker_hand": "FULL_HOUSE", "base_chips": 40, "base_mult": 4, "card_chips": 38,
+         "cards_played": [{"rank": "K", "suit": "SPADES", "chips": 10, "scored": true}],
+         "jokers": [
+           {"id": "banner",  "name": "Banner",        "triggered": false, "chips_added": 0, "mult_added": 0, "mult_factor": 1},
+           {"id": "joker",   "name": "Joker Clásico", "triggered": true,  "chips_added": 0, "mult_added": 4, "mult_factor": 1},
+           {"id": "the_duo", "name": "The Duo",       "triggered": true,  "chips_added": 0, "mult_added": 0, "mult_factor": 2}
+         ],
+         "discards_left": 0, "final_chips": 78, "final_mult": 16, "score": 1248
+       }
+     }
+     ```
+  3. `ERROR`: `{"type": "ERROR", "payload": {"code": "INVALID_SELECTION", "message": "card index 99 is out of range"}}`. Códigos: `INVALID_MESSAGE`, `INVALID_SELECTION`, `NOT_ALLOWED` (solo el dueño de la sala juega), `MATCH_FINISHED`, `NO_HANDS_LEFT`, `NO_DISCARDS_LEFT`, `ROOM_FULL`, `ROOM_NOT_FOUND`, `UNKNOWN_PLAYER`, `NOT_JOINED`, `STORAGE_UNAVAILABLE`.
+  4. `MATCH_FINISHED`:
      ```json
      {
        "type": "MATCH_FINISHED",
        "payload": {
-         "winner_id": "uuid-jugador",
+         "winner_id": "12",
+         "result": "WIN",
          "final_score": 1540,
+         "target_score": 300,
          "target_reached": true,
-         "reason": "TARGET_SCORE_REACHED"
+         "reason": "TARGET_SCORE_REACHED",
+         "hands_played": 2
        }
      }
      ```
+     `reason` es `TARGET_SCORE_REACHED` (≥ meta) o `HANDS_EXHAUSTED` (4 manos sin alcanzar la meta).
 
 #### 3.2.3. Conector C5: Contrato Protocol Buffers (`proto/telemetry.proto`)
 
@@ -322,63 +350,70 @@ message HandEventResponse {
 
 ### 3.3. Esquema de Datos y Persistencia Políglota
 
-#### 3.3.1. Modelo Relacional en PostgreSQL (`db/postgres/init.sql`)
+#### 3.3.1. Modelo Relacional en PostgreSQL (`db/postgres/create_db.sql`)
+
+El equipo adopta el esquema relacional oficial del diagrama ER entregado (BD `appdb`, usuario `appuser`): **`players` 1—n `matches` n—1 `rooms`**.
 
 ```sql
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
 CREATE TABLE IF NOT EXISTS players (
-    id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    alias      VARCHAR(50) UNIQUE NOT NULL,
-    total_wins INT NOT NULL DEFAULT 0,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    id_player  SERIAL PRIMARY KEY,
+    username   VARCHAR(255),
+    email      VARCHAR(255),
+    password   VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS jokers (
-    id            VARCHAR(30) PRIMARY KEY,
-    name          VARCHAR(50) NOT NULL,
-    description   TEXT NOT NULL,
-    modifier_type VARCHAR(20) NOT NULL CHECK (modifier_type IN ('ADD_CHIPS', 'ADD_MULT', 'X_MULT')),
-    default_val   NUMERIC(6,2) NOT NULL,
-    apply_order   SMALLINT NOT NULL
+CREATE TABLE IF NOT EXISTS rooms (
+    id_room     SERIAL PRIMARY KEY,
+    name        VARCHAR(255),
+    description TEXT,
+    capacity    INTEGER,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS matches (
-    id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    room_code    VARCHAR(10) UNIQUE NOT NULL,
-    target_score INT NOT NULL DEFAULT 300,
-    status       VARCHAR(20) NOT NULL DEFAULT 'WAITING' CHECK (status IN ('WAITING', 'IN_PROGRESS', 'FINISHED')),
-    winner_id    UUID REFERENCES players(id) ON DELETE SET NULL,
-    started_at   TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    finished_at  TIMESTAMPTZ
+    id_match   SERIAL PRIMARY KEY,
+    id_player  INTEGER,
+    id_room    INTEGER,
+    started_at TIMESTAMP,
+    ended_at   TIMESTAMP,
+    result     VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_matches_id_player_players FOREIGN KEY (id_player) REFERENCES players (id_player),
+    CONSTRAINT fk_matches_id_room_rooms     FOREIGN KEY (id_room)   REFERENCES rooms (id_room)
 );
-
-CREATE TABLE IF NOT EXISTS match_players (
-    match_id      UUID NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
-    player_id     UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
-    is_bot        BOOLEAN NOT NULL DEFAULT false,
-    final_score   INT NOT NULL DEFAULT 0,
-    hands_left    INT NOT NULL DEFAULT 4,
-    discards_left INT NOT NULL DEFAULT 3,
-    PRIMARY KEY (match_id, player_id)
-);
-
--- Seed Data de Jokers Canónicos
-INSERT INTO jokers (id, name, description, modifier_type, default_val, apply_order) VALUES
-('banner', 'Banner', '+30 Chips por cada descarte restante en la mano', 'ADD_CHIPS', 30.00, 1),
-('joker', 'Joker Clásico', '+4 Mult fijo a toda mano jugada', 'ADD_MULT', 4.00, 2),
-('the_duo', 'The Duo', 'x2 Mult exponencial si la mano contiene al menos un Par', 'X_MULT', 2.00, 3)
-ON CONFLICT (id) DO NOTHING;
 ```
 
-#### 3.3.2. Modelo Documental en MongoDB (`hand_events`)
+**Mapeo del dominio JokerArena sobre este esquema** (capa adaptadora en `internal/db/postgres.go`; el esquema compartido no se altera):
 
-Colección: `hand_events` (Base de datos: `jokerarena_telemetry`).
+| Concepto del juego | Columna / regla |
+|---|---|
+| Alias del jugador (F1) | `players.username`; `email` = `<alias>@guest.jokerarena.local` y `password` = centinela no autenticable (`!guest-no-login`). Unicidad del alias garantizada con `pg_advisory_xact_lock`. |
+| Identificadores | `id_player` / `id_match` SERIAL; la API los expone como cadena (`"12"`). |
+| Código de sala `JKR-XXXX` (F2) | `rooms.name` (único por transacción con *advisory lock*). |
+| Meta de puntos y modo Bot | `rooms.description` = `target_score=300;with_bot=true`; `rooms.capacity` = 1 (solo) o 2 (con Bot). |
+| Participantes | una fila de `matches` por participante (anfitrión y, si aplica, el jugador `Bot-JokerBot`). `match_id` de la API = `id_match` de la fila del anfitrión. |
+| Estado de la partida | `matches.result`: `WAITING` → `IN_PROGRESS` (primera jugada) → `WIN` / `LOSE`; `ended_at` al cerrar. El estado `FINISHED` de la API se deriva de `WIN`/`LOSE`. |
+| Catálogo de Jokers | Vive en el código del Game Engine (`internal/poker`), no en la BD: Banner → Joker Clásico → The Duo. |
+
+El contenedor `jokerarena-game-db` ejecuta `create_db.sql` en el primer arranque. Los servicios se conectan con `DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME`; la URL se construye codificando el usuario y la clave (`url.UserPassword`), por lo que caracteres como `@` en la contraseña son seguros. Con `STORAGE_MODE=postgres` (por defecto) el motor **no** simula persistencia: si la BD no responde, la API contesta `503`.
+
+#### 3.3.2. Modelo Documental en MongoDB (`hands`)
+
+Colección: `hands` (Base de datos: `casino_games`, autenticación `admin` / `authSource=admin`; inicializada por `db/mongo/mongo-init.js`, que también crea `players` y `rooms` del esquema del equipo). El servicio de telemetría conserva los campos del documento de ejemplo del equipo (`roomId`, `playerId`, `handNumber`, `cardsDealt`, `result`) y añade el desglose de puntuación (`scoring`).
 ```json
 {
   "_id": "6701f4c281e892d7b1a2001a",
-  "match_id": "8f1c7d2e-3b5a-49c1-8d2a-112233445566",
-  "player_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+  "roomId": "31",
+  "playerId": "12",
+  "handNumber": 1,
+  "cardsDealt": [{"rank": "K", "suit": "SPADES"}, {"rank": "K", "suit": "HEARTS"}],
+  "result": "FULL_HOUSE",
+  "match_id": "31",
+  "player_id": "12",
   "hand_number": 1,
   "poker_hand": "FULL_HOUSE",
   "cards_played": [
@@ -406,7 +441,7 @@ Colección: `hand_events` (Base de datos: `jokerarena_telemetry`).
   "timestamp": "2026-10-12T19:40:00Z"
 }
 ```
-*Índices optimizados:* `{"match_id": 1, "timestamp": 1}` y `{"player_id": 1}`.
+*Índices:* `{"roomId": 1, "handNumber": 1}`, `{"playerId": 1}`, `{"timestamp": -1}` (creados en `mongo-init.js`) y los de consulta por `match_id` creados por el servicio al arrancar. La URL de conexión se construye con `MONGO_HOST/PORT/USER/PASSWORD/AUTH_SOURCE`, codificando la clave. *Alcance F1–F5:* el endpoint REST `POST /telemetry/hands` y el servidor gRPC escriben en esta colección; el despacho automático desde el Game Engine (C5) y el streaming SSE (C4) pertenecen a F6 y quedan fuera de esta entrega.
 
 ---
 
@@ -489,9 +524,9 @@ El **Hito del 40%** solicitado por el usuario comprende la culminación integral
 
 #### Criterios de Aceptación Objetivos del Hito del 40%:
 * [ ] Al ejecutar `docker compose up --build -d`, los 5 contenedores levantan exitosamente sin reinicios inesperados.
-* [ ] Un usuario abre `http://localhost:3000`, ingresa un alias, y este queda registrado en PostgreSQL (`SELECT * FROM players;` devuelve la fila con su UUID).
-* [ ] El usuario crea una sala con opción Bot y recibe un código de sala visible en la interfaz (ej. `JKR-101`), quedando la partida registrada en PostgreSQL (`SELECT * FROM matches;`).
-* [ ] El Frontend abre automáticamente el socket `ws://localhost:8080/ws/JKR-101` y recibe el evento `ROOM_STATE_UPDATE`.
+* [ ] Un usuario abre `http://localhost:3000`, ingresa un alias, y este queda registrado en PostgreSQL (`SELECT * FROM players;` devuelve la fila con su `id_player` y el alias en `username`).
+* [ ] El usuario crea una sala con opción Bot y recibe un código de sala visible en la interfaz (ej. `JKR-A7K2`), quedando la partida registrada en PostgreSQL (`rooms.name` = código; una fila de `matches` por participante).
+* [ ] El Frontend abre automáticamente el socket `ws://localhost:3000/ws/JKR-A7K2` (vía Nginx; también `ws://localhost:8080/ws/{code}` directo) y recibe el evento `ROOM_STATE_UPDATE`.
 * [ ] La interfaz renderiza las 8 cartas francesas recibidas en tiempo real y permite seleccionar hasta 5 cartas con retroalimentación visual reactiva.
 * [ ] `http://localhost:8000/health` responde `{ "status": "ok" }` y `http://localhost:8080/health` responde `{ "status": "ok" }`.
 
@@ -525,20 +560,24 @@ docker compose ps
 | **Web Frontend Client** | `http://localhost:3000` | Interfaz gráfica: Registro, Lobby y Tapete de cartas. |
 | **Game Engine (Go)** | `http://localhost:8080/health` | Verificación de salud y endpoint WebSocket en `ws://localhost:8080/ws/{code}`. |
 | **Telemetry Service (Python)** | `http://localhost:8000/docs` | Documentación interactiva Swagger UI y salud en `http://localhost:8000/health`. |
-| **PostgreSQL 16** | `localhost:5432` | Inspección SQL (BD: `jokerarena_db`, usuario: `postgres`). |
-| **MongoDB 7** | `localhost:27017` | Inspección BSON (BD: `jokerarena_telemetry`, colección: `hand_events`). |
+| **PostgreSQL 16** | `localhost:5432` (`POSTGRES_PORT`) | Inspección SQL (BD: `appdb`, usuario: `appuser`, clave en `.env`). Tablas `players`, `rooms`, `matches`. |
+| **MongoDB 7** | `localhost:27017` (`MONGO_PORT`) | Inspección BSON (BD: `casino_games`, usuario `admin`, `authSource=admin`; colección `hands`). |
 
-### 5.3. Guía de Prueba para la Sustentación del Hito del 40%
+> Si su máquina ya usa 5432, 8080 o 27017, cambie `POSTGRES_PORT`, `GAME_ENGINE_PORT` o `MONGO_PORT` en `.env`; entre contenedores siempre se usan los puertos internos. Para usar la BD PostgreSQL remota compartida en lugar del contenedor local, añada a `.env` las variables de `.env.remote.example`.
+
+### 5.3. Guía de Prueba para la Sustentación
+
+Ver `GUIA_SUSTENTACION.md` (guion paso a paso con comandos de verificación). Resumen:
 
 1. Abrir `http://localhost:3000` en el navegador.
-2. Ingresar el alias (ej. `JugadorDemo`) y hacer clic en **"Registrarse"**.
-3. Hacer clic en **"Crear Sala (con Bot)"**.
-4. Constatar que se realiza la transición inmediata al tapete de juego y se muestra el código de sala generado.
-5. Observar cómo el tapete recibe por WebSocket (C2) y dibuja en pantalla la mano inicial de 8 cartas repartidas aleatoriamente desde la baraja francesa de 52 cartas.
-6. Hacer clic sobre las cartas para seleccionar hasta 5 cartas, observando el efecto visual de elevación/selección.
+2. Ingresar el alias (ej. `JugadorDemo`) y pulsar **"Registrarme y jugar"**.
+3. En el lobby, elegir la meta, dejar activo **"Jugar contra Bot"** y pulsar **"Crear sala (con Bot)"**.
+4. Constatar la transición inmediata al tapete y el código de sala generado (`JKR-XXXX`).
+5. Observar cómo el tapete recibe por WebSocket (C2) y dibuja la mano inicial de 8 cartas de la baraja de 52.
+6. Seleccionar hasta 5 cartas (clic o teclas 1–8) y pulsar **Jugar mano**: se anima la cascada Chips × Mult con los tres Jokers y el panel de auditoría muestra la fórmula exacta.
 7. Verificar en terminal la persistencia relacional en PostgreSQL:
    ```bash
-   docker compose exec jokerarena-game-db psql -U postgres -d jokerarena_db -c "SELECT alias, created_at FROM players; SELECT room_code, status FROM matches;"
+   docker compose exec jokerarena-game-db psql -U appuser -d appdb -c "SELECT id_player, username FROM players ORDER BY id_player DESC LIMIT 3;" -c "SELECT r.name, m.id_player, m.result FROM matches m JOIN rooms r USING (id_room) ORDER BY m.id_match DESC LIMIT 4;"
    ```
 8. Para detener y limpiar el entorno:
    ```bash

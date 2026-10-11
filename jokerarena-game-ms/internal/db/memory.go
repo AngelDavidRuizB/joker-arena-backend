@@ -3,123 +3,192 @@ package db
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"jokerarena-game-ms/internal/models"
 )
 
-// MemoryRepository provides a thread-safe in-memory Repository implementation for local/offline execution.
+type memMatchRow struct {
+	matchID  int
+	playerID int
+	result   string
+	endedAt  *time.Time
+	started  time.Time
+}
+
+type memRoom struct {
+	desc string
+	rows []*memMatchRow
+}
+
+// MemoryRepository is a thread-safe in-memory Repository for unit tests and explicit
+// STORAGE_MODE=memory runs. It mirrors the semantics of PostgresRepository (numeric ids,
+// one participation row per participant) but nothing survives a restart.
 type MemoryRepository struct {
-	mu           sync.RWMutex
-	players      map[string]*models.Player
-	byAlias      map[string]*models.Player
-	matches      map[string]*models.Match
-	matchPlayers map[string][]string // matchID -> []playerID
+	mu         sync.Mutex
+	nextPlayer int
+	nextMatch  int
+	players    map[int]*models.Player
+	byAlias    map[string]int
+	rooms      map[string]*memRoom
 }
 
-// NewMemoryRepository initializes an in-memory repository pre-seeded with Bot-JokerBot.
+// NewMemoryRepository creates an empty in-memory repository.
 func NewMemoryRepository() *MemoryRepository {
-	repo := &MemoryRepository{
-		players:      make(map[string]*models.Player),
-		byAlias:      make(map[string]*models.Player),
-		matches:      make(map[string]*models.Match),
-		matchPlayers: make(map[string][]string),
+	return &MemoryRepository{
+		nextPlayer: 1,
+		nextMatch:  1,
+		players:    make(map[int]*models.Player),
+		byAlias:    make(map[string]int),
+		rooms:      make(map[string]*memRoom),
 	}
-	_ = repo.EnsureBotPlayer(context.Background())
-	return repo
 }
 
-// RegisterPlayer registers or retrieves player by alias idempotently.
-func (m *MemoryRepository) RegisterPlayer(ctx context.Context, alias string) (*models.Player, bool, error) {
+func (m *MemoryRepository) addPlayerLocked(alias string) *models.Player {
+	id := m.nextPlayer
+	m.nextPlayer++
+	p := &models.Player{ID: strconv.Itoa(id), Alias: alias, CreatedAt: time.Now().UTC()}
+	m.players[id] = p
+	m.byAlias[strings.ToLower(alias)] = id
+	return p
+}
+
+// RegisterPlayer registers or retrieves a player by alias idempotently.
+func (m *MemoryRepository) RegisterPlayer(_ context.Context, alias string) (*models.Player, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	lower := strings.ToLower(strings.TrimSpace(alias))
-	if existing, found := m.byAlias[lower]; found {
-		return existing, false, nil
+	if id, ok := m.byAlias[strings.ToLower(alias)]; ok {
+		cp := *m.players[id]
+		return &cp, false, nil
 	}
-
-	player := &models.Player{
-		ID:        uuid.New().String(),
-		Alias:     strings.TrimSpace(alias),
-		TotalWins: 0,
-		CreatedAt: time.Now().UTC(),
-	}
-	m.players[player.ID] = player
-	m.byAlias[lower] = player
-	return player, true, nil
+	p := m.addPlayerLocked(alias)
+	cp := *p
+	return &cp, true, nil
 }
 
-// GetPlayerByID returns player by UUID.
-func (m *MemoryRepository) GetPlayerByID(ctx context.Context, id string) (*models.Player, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	player, found := m.players[id]
-	if !found {
-		return nil, fmt.Errorf("player not found: %s", id)
+// GetPlayerByID returns a player by numeric id.
+func (m *MemoryRepository) GetPlayerByID(_ context.Context, id string) (*models.Player, error) {
+	n, err := parsePlayerID(id)
+	if err != nil {
+		return nil, err
 	}
-	return player, nil
-}
-
-// CreateRoomMatch stores match and links participants in memory.
-func (m *MemoryRepository) CreateRoomMatch(ctx context.Context, matchID, roomCode string, targetScore int, hostPlayerID string, withBot bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	p, ok := m.players[n]
+	if !ok {
+		return nil, fmt.Errorf("player %s: %w", id, ErrNotFound)
+	}
+	cp := *p
+	return &cp, nil
+}
 
-	normCode := strings.ToUpper(strings.TrimSpace(roomCode))
+// CreateRoomMatch stores the room and its participation rows.
+func (m *MemoryRepository) CreateRoomMatch(_ context.Context, roomCode string, targetScore int, hostPlayerID string, withBot bool) (string, error) {
+	hostID, err := parsePlayerID(hostPlayerID)
+	if err != nil {
+		return "", err
+	}
+	code := strings.ToUpper(strings.TrimSpace(roomCode))
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, taken := m.rooms[code]; taken {
+		return "", ErrCodeTaken
+	}
 	now := time.Now().UTC()
-	match := &models.Match{
-		ID:          matchID,
-		RoomCode:    normCode,
-		TargetScore: targetScore,
-		Status:      "WAITING",
-		StartedAt:   now,
-	}
-	m.matches[normCode] = match
-
-	participants := []string{hostPlayerID}
+	room := &memRoom{desc: encodeRoomDescription(targetScore, withBot)}
+	hostRow := &memMatchRow{matchID: m.nextMatch, playerID: hostID, result: models.ResultWaiting, started: now}
+	m.nextMatch++
+	room.rows = append(room.rows, hostRow)
 	if withBot {
-		participants = append(participants, BotPlayerID)
+		botID, ok := m.byAlias[strings.ToLower(models.BotAlias)]
+		if !ok {
+			botID, _ = strconv.Atoi(m.addPlayerLocked(models.BotAlias).ID)
+		}
+		room.rows = append(room.rows, &memMatchRow{matchID: m.nextMatch, playerID: botID, result: models.ResultWaiting, started: now})
+		m.nextMatch++
 	}
-	m.matchPlayers[matchID] = participants
-	return nil
+	m.rooms[code] = room
+	return strconv.Itoa(hostRow.matchID), nil
 }
 
-// GetMatchByCode retrieves match and participant list by room code.
-func (m *MemoryRepository) GetMatchByCode(ctx context.Context, roomCode string) (*models.Match, []string, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	normCode := strings.ToUpper(strings.TrimSpace(roomCode))
-	match, found := m.matches[normCode]
-	if !found {
-		return nil, nil, fmt.Errorf("match not found for room code: %s", normCode)
+// GetMatchByCode reconstructs the match and participant ids.
+func (m *MemoryRepository) GetMatchByCode(_ context.Context, roomCode string) (*models.Match, []string, error) {
+	code := strings.ToUpper(strings.TrimSpace(roomCode))
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	room, ok := m.rooms[code]
+	if !ok {
+		return nil, nil, fmt.Errorf("room %s: %w", code, ErrNotFound)
 	}
-	players := m.matchPlayers[match.ID]
+	host := room.rows[0]
+	target, withBot := decodeRoomDescription(room.desc)
+	match := &models.Match{
+		ID:          strconv.Itoa(host.matchID),
+		RoomCode:    code,
+		TargetScore: target,
+		WithBot:     withBot,
+		Status:      statusFromResult(host.result),
+		Result:      host.result,
+		HostID:      strconv.Itoa(host.playerID),
+		StartedAt:   host.started,
+		FinishedAt:  host.endedAt,
+	}
+	players := make([]string, 0, len(room.rows))
+	for _, row := range room.rows {
+		players = append(players, strconv.Itoa(row.playerID))
+	}
 	return match, players, nil
 }
 
-// EnsureBotPlayer seeds the default bot player.
-func (m *MemoryRepository) EnsureBotPlayer(ctx context.Context) error {
-	bot := &models.Player{
-		ID:        BotPlayerID,
-		Alias:     "Bot-JokerBot",
-		TotalWins: 0,
-		CreatedAt: time.Now().UTC(),
+// MarkMatchInProgress flips WAITING rows to IN_PROGRESS.
+func (m *MemoryRepository) MarkMatchInProgress(_ context.Context, roomCode string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	room, ok := m.rooms[strings.ToUpper(strings.TrimSpace(roomCode))]
+	if !ok {
+		return ErrNotFound
 	}
-	m.players[BotPlayerID] = bot
-	m.byAlias[strings.ToLower(bot.Alias)] = bot
+	for _, row := range room.rows {
+		if row.result == models.ResultWaiting {
+			row.result = models.ResultInProgress
+		}
+	}
 	return nil
 }
 
-// Ping for MemoryRepository always succeeds.
-func (m *MemoryRepository) Ping(ctx context.Context) error {
+// FinishMatch stores WIN/LOSE for the host and the bot.
+func (m *MemoryRepository) FinishMatch(_ context.Context, roomCode string, hostWon bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	room, ok := m.rooms[strings.ToUpper(strings.TrimSpace(roomCode))]
+	if !ok {
+		return ErrNotFound
+	}
+	now := time.Now().UTC()
+	for i, row := range room.rows {
+		won := hostWon
+		if i > 0 { // bot row
+			won = !hostWon
+		}
+		if won {
+			row.result = models.ResultWin
+		} else {
+			row.result = models.ResultLose
+		}
+		t := now
+		row.endedAt = &t
+	}
 	return nil
 }
 
-// Close is a no-op for memory store.
+// Ping always succeeds for the memory store.
+func (m *MemoryRepository) Ping(context.Context) error { return nil }
+
+// Mode returns the storage mode label.
+func (m *MemoryRepository) Mode() string { return "memory" }
+
+// Close is a no-op for the memory store.
 func (m *MemoryRepository) Close() {}

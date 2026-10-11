@@ -16,8 +16,8 @@ func NewPgxPool(ctx context.Context, dbURL string) (*pgxpool.Pool, error) {
 	}
 
 	// Performance and reliability tuning
-	cfg.MaxConns = 25
-	cfg.MinConns = 5
+	cfg.MaxConns = 20
+	cfg.MinConns = 1
 	cfg.MaxConnLifetime = 1 * time.Hour
 	cfg.MaxConnIdleTime = 30 * time.Minute
 	cfg.HealthCheckPeriod = 1 * time.Minute

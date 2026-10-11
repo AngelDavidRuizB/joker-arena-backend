@@ -81,7 +81,7 @@ class TestM2AdversarialSuite(unittest.TestCase):
         env = os.environ.copy()
         env["HTTP_PORT"] = str(http_port)
         env["GRPC_PORT"] = str(grpc_port)
-        env["MONGO_URL"] = "mongodb://127.0.0.1:27017"
+        env["MONGO_URL"] = "mongodb://127.0.0.1:1"
         env["MONGO_DB"] = "jokerarena_telemetry_test_f"
         env["PYTHONPATH"] = f"{str(TELEMETRY_DIR)}{os.pathsep}{str(TELEMETRY_DIR / 'proto')}"
 
@@ -89,8 +89,8 @@ class TestM2AdversarialSuite(unittest.TestCase):
             [str(VENV_PYTHON), "main.py"],
             cwd=str(TELEMETRY_DIR),
             env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             text=True,
         )
 
@@ -217,7 +217,7 @@ class TestM2AdversarialSuite(unittest.TestCase):
         env = os.environ.copy()
         env["HTTP_PORT"] = str(http_port)
         env["GRPC_PORT"] = str(grpc_port)
-        env["MONGO_URL"] = "mongodb://127.0.0.1:27017"
+        env["MONGO_URL"] = "mongodb://127.0.0.1:1"
         env["MONGO_DB"] = "jokerarena_telemetry_test_c"
         env["PYTHONPATH"] = f"{str(TELEMETRY_DIR)}{os.pathsep}{str(TELEMETRY_DIR / 'proto')}"
 
@@ -225,8 +225,8 @@ class TestM2AdversarialSuite(unittest.TestCase):
             [str(VENV_PYTHON), "main.py"],
             cwd=str(TELEMETRY_DIR),
             env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             text=True,
         )
 
@@ -318,7 +318,7 @@ class TestM2AdversarialSuite(unittest.TestCase):
         env = os.environ.copy()
         env["HTTP_PORT"] = str(http_port)
         env["GRPC_PORT"] = str(grpc_port)
-        env["MONGO_URL"] = "mongodb://127.0.0.1:27017"
+        env["MONGO_URL"] = "mongodb://127.0.0.1:1"
         env["MONGO_DB"] = "jokerarena_telemetry_test_s"
         env["PYTHONPATH"] = f"{str(TELEMETRY_DIR)}{os.pathsep}{str(TELEMETRY_DIR / 'proto')}"
 
@@ -326,8 +326,8 @@ class TestM2AdversarialSuite(unittest.TestCase):
             [str(VENV_PYTHON), "main.py"],
             cwd=str(TELEMETRY_DIR),
             env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             text=True,
         )
 
@@ -374,7 +374,7 @@ class TestM2AdversarialSuite(unittest.TestCase):
         env = os.environ.copy()
         env["HTTP_PORT"] = str(http_port)
         env["GRPC_PORT"] = str(grpc_port)
-        env["MONGO_URL"] = "mongodb://127.0.0.1:27017"
+        env["MONGO_URL"] = "mongodb://127.0.0.1:1"
         env["MONGO_DB"] = "jokerarena_telemetry_test_h"
         env["PYTHONPATH"] = f"{str(TELEMETRY_DIR)}{os.pathsep}{str(TELEMETRY_DIR / 'proto')}"
 
@@ -382,8 +382,8 @@ class TestM2AdversarialSuite(unittest.TestCase):
             [str(VENV_PYTHON), "main.py"],
             cwd=str(TELEMETRY_DIR),
             env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             text=True,
         )
 
@@ -396,28 +396,24 @@ class TestM2AdversarialSuite(unittest.TestCase):
             single_health_latency = time.perf_counter() - t0
             self.assertEqual(r.status_code, 200)
 
-            print(
-                f"\n[DEFECT CONFIRMED] GET /health latency in offline fallback mode: {single_health_latency:.2f}s "
-                f"(Expected < 0.05s; observed {single_health_latency:.2f}s due to PyMongo server selection socket timeout)."
-            )
-            # A healthy offline fallback should respond in < 100ms, not 2-4 seconds!
-            is_unacceptable_latency = single_health_latency > 1.5
-            self.assertTrue(
-                is_unacceptable_latency,
-                "Empirically confirmed that /health blocks on PyMongo serverSelectionTimeoutMS."
+            # A healthy offline fallback must answer quickly (no PyMongo server-selection blocking).
+            self.assertLess(
+                single_health_latency,
+                1.5,
+                f"/health blocked for {single_health_latency:.2f}s while MongoDB is unreachable",
             )
         finally:
             proc.terminate()
             proc.wait(timeout=5.0)
 
     # ==========================================================================
-    # TEST 5: Defect Reproduction — gRPC RecordHand without Scoring -> HTTP 500
+    # TEST 5: Regression — gRPC RecordHand without Scoring must not break the REST API
     # ==========================================================================
-    def test_05_defect_reproduction_grpc_no_scoring_causes_http_500(self):
+    def test_05_regression_grpc_no_scoring_does_not_cause_http_500(self):
         """
-        Empirically reproduces Defect 2:
-        gRPC RecordHand without scoring records doc['scoring'] = {}.
-        GET /telemetry/hands fails with Pydantic ValidationError -> HTTP 500 for ALL users.
+        Regression for a fixed defect:
+        gRPC RecordHand without scoring stores doc['scoring'] = {}. Listing/reading events over
+        REST must keep working (HTTP 200) instead of failing with a Pydantic ValidationError.
         """
         http_port = 18044
         grpc_port = 15094
@@ -427,7 +423,7 @@ class TestM2AdversarialSuite(unittest.TestCase):
         env = os.environ.copy()
         env["HTTP_PORT"] = str(http_port)
         env["GRPC_PORT"] = str(grpc_port)
-        env["MONGO_URL"] = "mongodb://127.0.0.1:27017"
+        env["MONGO_URL"] = "mongodb://127.0.0.1:1"
         env["MONGO_DB"] = "jokerarena_telemetry_test_e"
         env["PYTHONPATH"] = f"{str(TELEMETRY_DIR)}{os.pathsep}{str(TELEMETRY_DIR / 'proto')}"
 
@@ -435,8 +431,8 @@ class TestM2AdversarialSuite(unittest.TestCase):
             [str(VENV_PYTHON), "main.py"],
             cwd=str(TELEMETRY_DIR),
             env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             text=True,
         )
 
@@ -464,15 +460,13 @@ class TestM2AdversarialSuite(unittest.TestCase):
 
             # 2. Query specific event via REST: GET /telemetry/hands/{event_id}
             r_single = requests.get(f"{base_url}/telemetry/hands/{event_id}", timeout=3.0)
-            print(f"\n[DEFECT CONFIRMED] GET /telemetry/hands/{event_id} status code: {r_single.status_code}")
 
             # 3. Query list endpoint: GET /telemetry/hands
             r_list = requests.get(f"{base_url}/telemetry/hands", timeout=3.0)
-            print(f"[DEFECT CONFIRMED] Global GET /telemetry/hands status code: {r_list.status_code}")
 
-            # Empirically verify that this unhandled schema boundary causes HTTP 500
-            self.assertEqual(r_single.status_code, 500)
-            self.assertEqual(r_list.status_code, 500)
+            # Both reads must succeed even though the event carries no scoring breakdown
+            self.assertEqual(r_single.status_code, 200)
+            self.assertEqual(r_list.status_code, 200)
         finally:
             proc.terminate()
             proc.wait(timeout=5.0)

@@ -21,6 +21,8 @@ async def health_check():
             "status": "ok",
             "service": settings.SERVICE_NAME,
             "database": "mongodb",
+            "db_name": settings.MONGO_DB,
+            "collection": settings.MONGO_COLLECTION,
             "mongodb": mongo_status,
         },
     )

@@ -1,0 +1,30 @@
+version: '3'
+services:
+  db:
+    image: postgres:16
+    environment:
+      - POSTGRES_USER=appuser
+      - POSTGRES_PASSWORD=Joker@sgf13Arena
+      - POSTGRES_DB=appdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./db-data:/var/lib/postgresql/data
+      - ./create_db.sql:/docker-entrypoint-initdb.d/create_db.sql:ro
+
+  mongo:
+    image: mongo:7
+    container_name: mongo
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: Joker@sgf13Arena
+      MONGO_INITDB_DATABASE: casino_games
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+      - ./mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+
+volumes:
+  mongo_data:

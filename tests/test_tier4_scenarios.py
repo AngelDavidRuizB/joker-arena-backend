@@ -83,10 +83,24 @@ class TestTier4Scenarios(unittest.TestCase):
         selected_indices = [0, 1, 2, 3, 4]
         self.assertEqual(len(selected_indices), 5)
 
-        # 5. Play Hand and Progress Score
-        status, update_env = self.mock_server.simulate_play_hand(room_code, selected_indices)
-        self.assertEqual(status, 200)
-        updated_state = update_env["payload"]
+        # 5. Play Hand over the real WebSocket (server-authoritative scoring) and progress the score
+        if self.is_game_engine_live:
+            from tests.test_ws_game_flow import Session, ws_connect
+            if ws_connect is None:
+                self.skipTest("websockets>=12 is required")
+            session = Session(room_code, player_id)
+            try:
+                session.expect("ROOM_STATE_UPDATE")
+                session.send("PLAY_HAND", selected_indices)
+                scored = session.expect("HAND_SCORED")
+                updated_state = session.expect("ROOM_STATE_UPDATE")
+            finally:
+                session.close()
+            self.assertEqual(scored["score"], updated_state["current_score"])
+        else:
+            status, update_env = self.mock_server.simulate_play_hand(room_code, selected_indices)
+            self.assertEqual(status, 200)
+            updated_state = update_env["payload"]
         self.assertGreater(updated_state["current_score"], 0)
         self.assertEqual(updated_state["hands_left"], 3)
         self.assertEqual(updated_state["target_score"], 300)
@@ -109,7 +123,7 @@ class TestTier4Scenarios(unittest.TestCase):
 
         # In mock or live mode, verify database and seed consistency
         if self.is_pg_live:
-            self.assertTrue(self.pg_client.table_exists("jokers"))
+            self.assertTrue(self.pg_client.table_exists("rooms"))
             self.assertTrue(self.pg_client.table_exists("players"))
             self.assertTrue(self.pg_client.table_exists("matches"))
         else:

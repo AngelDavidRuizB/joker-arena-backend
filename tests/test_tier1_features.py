@@ -35,6 +35,7 @@ from tests.test_client import (
     NetworkProbe,
     PostgresTestClient,
     RESTClient,
+    is_valid_player_id,
     is_valid_uuid,
     validate_french_card,
     validate_room_state_update,
@@ -160,12 +161,12 @@ class TestTier1Features(unittest.TestCase):
         else:
             self.assertTrue(True)
 
-    def test_f02_03_postgres_table_jokers_exists(self):
-        """F2.3: Relational table 'jokers' exists with required schema."""
+    def test_f02_03_postgres_table_rooms_exists(self):
+        """F2.3: Relational table 'rooms' exists with required schema."""
         if not self.is_pg_live and not is_mock_mode():
             self.skipTest("PostgreSQL not running")
         if self.is_pg_live:
-            self.assertTrue(self.pg_client.table_exists("jokers"))
+            self.assertTrue(self.pg_client.table_exists("rooms"))
         else:
             self.assertTrue(True)
 
@@ -178,12 +179,18 @@ class TestTier1Features(unittest.TestCase):
         else:
             self.assertTrue(True)
 
-    def test_f02_05_postgres_table_match_players_exists(self):
-        """F2.5: Relational table 'match_players' exists with required schema."""
+    def test_f02_05_postgres_matches_foreign_keys(self):
+        """F2.5: 'matches' links players and rooms (fk_matches_id_player_players, fk_matches_id_room_rooms)."""
         if not self.is_pg_live and not is_mock_mode():
             self.skipTest("PostgreSQL not running")
         if self.is_pg_live:
-            self.assertTrue(self.pg_client.table_exists("match_players"))
+            rows = self.pg_client.query(
+                "SELECT constraint_name FROM information_schema.table_constraints "
+                "WHERE table_name='matches' AND constraint_type='FOREIGN KEY'"
+            )
+            names = {r[0] for r in rows}
+            self.assertIn("fk_matches_id_player_players", names)
+            self.assertIn("fk_matches_id_room_rooms", names)
         else:
             self.assertTrue(True)
 
@@ -191,64 +198,64 @@ class TestTier1Features(unittest.TestCase):
     # Feature 3: PostgreSQL Seed Catalog & Default Bot
     # ==========================================================================
 
+    # The Joker catalog lives in the Game Engine code (internal/poker), not in the database:
+    # the shared schema only has players / rooms / matches. We verify it end-to-end through
+    # the HAND_SCORED audit emitted over the WebSocket.
+
+    def _scored_hand(self):
+        """Plays one hand over the real WebSocket and returns the HAND_SCORED payload."""
+        if not self.is_game_engine_live:
+            self.skipTest("Game Engine not running")
+        from tests.test_ws_game_flow import Session, _register_and_create_room, ws_connect
+        if ws_connect is None:
+            self.skipTest("websockets>=12 is required")
+        player_id, code = _register_and_create_room(100000)
+        s = Session(code, player_id)
+        try:
+            s.expect("ROOM_STATE_UPDATE")
+            s.send("PLAY_HAND", [0, 1, 2])
+            return s.expect("HAND_SCORED")
+        finally:
+            s.close()
+
     def test_f03_01_seed_joker_banner(self):
-        """F3.1: Seed joker 'banner' is present (+30 chips per discard)."""
-        if self.is_pg_live:
-            rows = self.pg_client.query("SELECT id, name, modifier_type, default_val FROM jokers WHERE id='banner'")
-            self.assertEqual(len(rows), 1)
-            self.assertEqual(rows[0][2], "ADD_CHIPS")
-            self.assertEqual(float(rows[0][3]), 30.00)
-        else:
-            j = self.mock_server.jokers.get("banner")
-            self.assertIsNotNone(j)
-            self.assertEqual(j["modifier_type"], "ADD_CHIPS")
-            self.assertEqual(j["default_val"], 30.00)
+        """F3.1: Joker 'banner' (+30 chips per remaining discard) is applied first."""
+        scored = self._scored_hand()
+        banner = scored["jokers"][0]
+        self.assertEqual(banner["id"], "banner")
+        self.assertEqual(banner["chips_added"], 30 * scored["discards_left"])
 
     def test_f03_02_seed_joker_classico(self):
-        """F3.2: Seed joker 'joker' (Joker Clásico) is present (+4 Mult)."""
-        if self.is_pg_live:
-            rows = self.pg_client.query("SELECT id, name, modifier_type, default_val FROM jokers WHERE id='joker'")
-            self.assertEqual(len(rows), 1)
-            self.assertEqual(rows[0][2], "ADD_MULT")
-            self.assertEqual(float(rows[0][3]), 4.00)
-        else:
-            j = self.mock_server.jokers.get("joker")
-            self.assertIsNotNone(j)
-            self.assertEqual(j["modifier_type"], "ADD_MULT")
-            self.assertEqual(j["default_val"], 4.00)
+        """F3.2: Joker 'joker' (Joker Clásico, +4 Mult) is applied second, always."""
+        scored = self._scored_hand()
+        joker = scored["jokers"][1]
+        self.assertEqual(joker["id"], "joker")
+        self.assertEqual(joker["mult_added"], 4)
+        self.assertTrue(joker["triggered"])
 
     def test_f03_03_seed_joker_the_duo(self):
-        """F3.3: Seed joker 'the_duo' is present (x2 Mult)."""
-        if self.is_pg_live:
-            rows = self.pg_client.query("SELECT id, name, modifier_type, default_val FROM jokers WHERE id='the_duo'")
-            self.assertEqual(len(rows), 1)
-            self.assertEqual(rows[0][2], "X_MULT")
-            self.assertEqual(float(rows[0][3]), 2.00)
-        else:
-            j = self.mock_server.jokers.get("the_duo")
-            self.assertIsNotNone(j)
-            self.assertEqual(j["modifier_type"], "X_MULT")
-            self.assertEqual(j["default_val"], 2.00)
+        """F3.3: Joker 'the_duo' (x2 Mult only with a pair) is applied third."""
+        scored = self._scored_hand()
+        duo = scored["jokers"][2]
+        self.assertEqual(duo["id"], "the_duo")
+        self.assertEqual(duo["mult_factor"], 2 if duo["triggered"] else 1)
 
     def test_f03_04_seed_bot_player_record(self):
-        """F3.4: Default bot user '00000000-0000-0000-0000-000000000001' seeded."""
-        bot_id = "00000000-0000-0000-0000-000000000001"
-        if self.is_pg_live:
-            rows = self.pg_client.query("SELECT id, alias FROM players WHERE id=%s", (bot_id,))
-            self.assertEqual(len(rows), 1)
-            self.assertIn("Bot", rows[0][1])
+        """F3.4: The bot opponent exists as a player row once a room with Bot is created."""
+        if self.is_game_engine_live and self.is_pg_live:
+            _register_player_and_room_with_bot = self.rest_client.register_player(f"BotChk_{uuid.uuid4().hex[:5]}")
+            self.rest_client.create_room(_register_player_and_room_with_bot.json()["id"], with_bot=True)
+            rows = self.pg_client.query("SELECT id_player, username FROM players WHERE username=%s", ("Bot-JokerBot",))
+            self.assertGreaterEqual(len(rows), 1)
         else:
-            p = self.mock_server.players.get(bot_id)
+            p = self.mock_server.players.get("00000000-0000-0000-0000-000000000001")
             self.assertIsNotNone(p)
             self.assertIn("Bot", p["alias"])
 
     def test_f03_05_seed_catalog_count(self):
-        """F3.5: Seed catalog contains exactly 3 official Jokers."""
-        if self.is_pg_live:
-            rows = self.pg_client.query("SELECT count(*) FROM jokers")
-            self.assertEqual(rows[0][0], 3)
-        else:
-            self.assertEqual(len(self.mock_server.jokers), 3)
+        """F3.5: Exactly 3 official Jokers take part in every scored hand."""
+        scored = self._scored_hand()
+        self.assertEqual([j["id"] for j in scored["jokers"]], ["banner", "joker", "the_duo"])
 
     # ==========================================================================
     # Feature 4: MongoDB Persistence & Health
@@ -261,8 +268,8 @@ class TestTier1Features(unittest.TestCase):
         self.assertTrue(NetworkProbe.probe_mongodb() or is_mock_mode())
 
     def test_f04_02_mongodb_database_configured(self):
-        """F4.2: MongoDB database name configured as jokerarena_telemetry."""
-        self.assertEqual(MONGO_DB, "jokerarena_telemetry")
+        """F4.2: MongoDB database name configured as casino_games."""
+        self.assertEqual(MONGO_DB, "casino_games")
 
     def test_f04_03_telemetry_health_reports_mongo_connected(self):
         """F4.3: Telemetry service healthcheck validates MongoDB connectivity."""
@@ -417,11 +424,11 @@ class TestTier1Features(unittest.TestCase):
             code, data = self.mock_server.register_player(alias)
             self.assertEqual(code, 201)
 
-        self.assertTrue(is_valid_uuid(data["id"]))
+        self.assertTrue(is_valid_player_id(data["id"]))
         self.assertEqual(data["alias"], alias)
 
     def test_f07_02_player_registration_schema_fields(self):
-        """F7.2: Player response contains id, alias, total_wins, created_at."""
+        """F7.2: Player response contains id, alias, created_at."""
         alias = f"Pl_{uuid.uuid4().hex[:4]}"
         if self.is_game_engine_live:
             res = self.rest_client.register_player(alias)
@@ -431,16 +438,15 @@ class TestTier1Features(unittest.TestCase):
 
         self.assertIn("id", data)
         self.assertIn("alias", data)
-        self.assertIn("total_wins", data)
         self.assertIn("created_at", data)
 
     def test_f07_03_player_registration_persists_to_postgres(self):
-        """F7.3: Registered player is persisted into players table."""
+        """F7.3: Registered player is persisted into players table (alias -> username)."""
         alias = f"Persist_{uuid.uuid4().hex[:4]}"
         if self.is_game_engine_live and self.is_pg_live:
             res = self.rest_client.register_player(alias)
             p_id = res.json()["id"]
-            rows = self.pg_client.query("SELECT alias FROM players WHERE id=%s", (p_id,))
+            rows = self.pg_client.query("SELECT username FROM players WHERE id_player=%s", (int(p_id),))
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0][0], alias)
         else:
@@ -448,11 +454,11 @@ class TestTier1Features(unittest.TestCase):
             self.assertIn(data["id"], self.mock_server.players)
 
     def test_f07_04_player_min_length_alias(self):
-        """F7.4: 2-character alias is accepted with HTTP 201."""
+        """F7.4: 2-character alias is accepted (201 new, or 200 if it already exists: idempotent)."""
         alias = f"A{uuid.uuid4().hex[:1]}"
         if self.is_game_engine_live:
             res = self.rest_client.register_player(alias)
-            self.assertEqual(res.status_code, 201)
+            self.assertIn(res.status_code, (200, 201))
         else:
             code, _ = self.mock_server.register_player(alias)
             self.assertEqual(code, 201)
@@ -473,7 +479,7 @@ class TestTier1Features(unittest.TestCase):
     # ==========================================================================
 
     def test_f08_01_room_creation_happy_path(self):
-        """F8.1: POST /api/rooms creates room with 6-char code and returns 201."""
+        """F8.1: POST /api/rooms creates a JKR-XXXX room code and returns 201."""
         alias = f"Host_{uuid.uuid4().hex[:4]}"
         if self.is_game_engine_live:
             p_res = self.rest_client.register_player(alias)
@@ -488,7 +494,7 @@ class TestTier1Features(unittest.TestCase):
 
         self.assertIn("room_code", data)
         self.assertTrue(len(data["room_code"]) >= 6)
-        self.assertTrue(is_valid_uuid(data["match_id"]))
+        self.assertTrue(is_valid_player_id(data["match_id"]))
         self.assertEqual(data["status"], "WAITING")
 
     def test_f08_02_room_creation_with_bot_selector(self):

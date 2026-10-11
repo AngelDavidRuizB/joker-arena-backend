@@ -57,6 +57,11 @@ def is_valid_uuid(val: str) -> bool:
         return False
 
 
+def is_valid_player_id(val: str) -> bool:
+    """Player ids are the SERIAL id_player of the team's schema, exposed as a numeric string."""
+    return isinstance(val, str) and re.fullmatch(r"[0-9]{1,9}", val) is not None
+
+
 def validate_french_card(card: dict) -> Tuple[bool, str]:
     if not isinstance(card, dict):
         return False, "Card must be a dictionary"
@@ -372,11 +377,10 @@ class MockE2EServer:
             existing = self.players[self.alias_to_id[alias]]
             return 200, existing
 
-        p_id = str(uuid.uuid4())
+        p_id = str(100 + len(self.players))  # numeric SERIAL-like id, exposed as string
         record = {
             "id": p_id,
             "alias": alias,
-            "total_wins": 0,
             "created_at": "2026-10-06T05:00:00Z"
         }
         self.players[p_id] = record
@@ -389,7 +393,7 @@ class MockE2EServer:
 
         code_suffix = uuid.uuid4().hex[:3].upper()
         room_code = f"JKR-{code_suffix}"
-        match_id = str(uuid.uuid4())
+        match_id = str(1000 + len(self.rooms))  # numeric id_match, exposed as string
         room = {
             "room_code": room_code,
             "match_id": match_id,

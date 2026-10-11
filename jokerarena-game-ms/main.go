@@ -22,16 +22,24 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Initialize Resilient Database Repository (PostgreSQL via pgxpool with Memory fallback)
-	repo := db.NewResilientRepository(ctx, cfg.DatabaseURL)
+	// Storage: PostgreSQL (default). The in-memory store is only used when explicitly requested.
+	var repo db.Repository
+	if cfg.StorageMode == "memory" {
+		log.Printf("[WARN] STORAGE_MODE=memory: data will NOT be persisted (testing only).")
+		repo = db.NewMemoryRepository()
+	} else {
+		repo = db.NewPostgresRepository(ctx, cfg.DatabaseURL, cfg.DatabaseTarget)
+	}
 	defer repo.Close()
 
-	// Initialize In-Memory Active Room Session Manager
-	roomMgr := room.NewRoomManager()
+	// Authoritative in-memory room sessions; match results are persisted through the repository.
+	roomMgr := room.NewManager(repo)
+	defer roomMgr.Close()
+	roomMgr.StartJanitor(ctx, 5*time.Minute, 2*time.Hour)
 
 	// Wire HTTP & WebSocket Handlers and Router
 	h := handlers.NewHandler(repo, roomMgr)
-	router := handlers.NewRouter(h)
+	router := handlers.NewRouter(h, cfg.AllowedOrigins)
 
 	addr := fmt.Sprintf("0.0.0.0:%s", cfg.Port)
 	server := &http.Server{
@@ -41,13 +49,12 @@ func main() {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	// Server startup log
 	log.Printf("==========================================================")
 	log.Printf("JokerArena Game Engine listening on http://%s", addr)
 	log.Printf("Health:    http://%s/health", addr)
 	log.Printf("REST API:  POST /api/players, POST /api/rooms, GET /api/rooms/{code}")
 	log.Printf("WebSocket: ws://%s/ws/{code}", addr)
-	log.Printf("Database:  %s", cfg.DatabaseURL)
+	log.Printf("Storage:   %s (%s)", cfg.StorageMode, cfg.DatabaseTarget)
 	log.Printf("==========================================================")
 
 	// Graceful shutdown handling

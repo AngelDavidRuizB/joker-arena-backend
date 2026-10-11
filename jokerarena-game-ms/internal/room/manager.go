@@ -1,162 +1,101 @@
 package room
 
 import (
+	"context"
 	"crypto/rand"
 	"math/big"
 	"strings"
 	"sync"
 	"time"
-
-	"jokerarena-game-ms/internal/models"
 )
 
-const BotPlayerID = "00000000-0000-0000-0000-000000000001"
-
-// RoomSession represents an active in-memory game room session.
-type RoomSession struct {
-	mu           sync.RWMutex
-	RoomCode     string        `json:"room_code"`
-	MatchID      string        `json:"match_id"`
-	TargetScore  int           `json:"target_score"`
-	Status       string        `json:"status"`
-	WithBot      bool          `json:"with_bot"`
-	HandsLeft    int           `json:"hands_left"`
-	DiscardsLeft int           `json:"discards_left"`
-	CurrentScore int           `json:"current_score"`
-	DeckCount    int           `json:"deck_count"`
-	ActiveJokers []string      `json:"active_jokers"`
-	CardsInHand  []models.Card `json:"cards_in_hand"`
-	Deck         []models.Card `json:"-"`
-	Players      []string      `json:"players"`
-	CreatedAt    time.Time     `json:"created_at"`
+// Manager keeps the active room sessions in memory.
+type Manager struct {
+	mu        sync.RWMutex
+	rooms     map[string]*Room
+	persister Persister
 }
 
-// ToDetailsResponse converts RoomSession to models.RoomDetailsResponse safely.
-func (s *RoomSession) ToDetailsResponse() models.RoomDetailsResponse {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	cardsCopy := make([]models.Card, len(s.CardsInHand))
-	copy(cardsCopy, s.CardsInHand)
-
-	jokersCopy := make([]string, len(s.ActiveJokers))
-	copy(jokersCopy, s.ActiveJokers)
-
-	playersCopy := make([]string, len(s.Players))
-	copy(playersCopy, s.Players)
-
-	return models.RoomDetailsResponse{
-		RoomCode:     s.RoomCode,
-		MatchID:      s.MatchID,
-		TargetScore:  s.TargetScore,
-		Status:       s.Status,
-		WithBot:      s.WithBot,
-		HandsLeft:    s.HandsLeft,
-		DiscardsLeft: s.DiscardsLeft,
-		CurrentScore: s.CurrentScore,
-		DeckCount:    s.DeckCount,
-		ActiveJokers: jokersCopy,
-		CardsInHand:  cardsCopy,
-		Players:      playersCopy,
-		CreatedAt:    s.CreatedAt,
-	}
+// NewManager creates a Manager. persister may be nil (match results are then not stored).
+func NewManager(persister Persister) *Manager {
+	return &Manager{rooms: make(map[string]*Room), persister: persister}
 }
 
-// RoomManager manages active room sessions in memory.
-type RoomManager struct {
-	mu    sync.RWMutex
-	rooms map[string]*RoomSession
-}
-
-// NewRoomManager initializes RoomManager.
-func NewRoomManager() *RoomManager {
-	return &RoomManager{
-		rooms: make(map[string]*RoomSession),
-	}
-}
-
-// CreateRoom initializes a new session, generates the 52-card French deck, and deals 8 cards.
-func (m *RoomManager) CreateRoom(matchID, roomCode string, targetScore int, withBot bool, hostPlayerID string) *RoomSession {
+// Create starts a new room session, or returns the existing one for the same code.
+func (m *Manager) Create(opts Options) *Room {
+	code := strings.ToUpper(strings.TrimSpace(opts.Code))
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	normCode := strings.ToUpper(strings.TrimSpace(roomCode))
-	if targetScore <= 0 {
-		targetScore = 300
+	if existing, ok := m.rooms[code]; ok {
+		return existing
 	}
-
-	deck := GenerateDeck()
-	hand := make([]models.Card, 8)
-	copy(hand, deck[:8])
-	remainingDeck := make([]models.Card, len(deck)-8)
-	copy(remainingDeck, deck[8:])
-
-	players := []string{hostPlayerID}
-	if withBot {
-		players = append(players, BotPlayerID)
-	}
-
-	session := &RoomSession{
-		RoomCode:     normCode,
-		MatchID:      matchID,
-		TargetScore:  targetScore,
-		Status:       "WAITING",
-		WithBot:      withBot,
-		HandsLeft:    4,
-		DiscardsLeft: 3,
-		CurrentScore: 0,
-		DeckCount:    len(remainingDeck),
-		ActiveJokers: []string{"banner", "joker", "the_duo"},
-		CardsInHand:  hand,
-		Deck:         remainingDeck,
-		Players:      players,
-		CreatedAt:    time.Now().UTC(),
-	}
-
-	m.rooms[normCode] = session
-	return session
+	r := newRoom(opts, m.persister)
+	m.rooms[code] = r
+	return r
 }
 
-// GetRoom retrieves an active room session by code (case-insensitive).
-func (m *RoomManager) GetRoom(code string) (*RoomSession, bool) {
+// Get returns the active session for a code (case-insensitive).
+func (m *Manager) Get(code string) (*Room, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
-	normCode := strings.ToUpper(strings.TrimSpace(code))
-	session, found := m.rooms[normCode]
-	return session, found
+	r, ok := m.rooms[strings.ToUpper(strings.TrimSpace(code))]
+	return r, ok
 }
 
-// GenerateRoomCode generates a cryptographically random 6-character alphanumeric room code.
+// Reap stops and removes sessions without clients that were idle for longer than maxIdle
+// (or finished sessions idle for longer than finishedIdle). It returns how many were removed.
+func (m *Manager) Reap(maxIdle time.Duration) int {
+	now := time.Now().UTC()
+	var stale []*Room
+	m.mu.Lock()
+	for code, r := range m.rooms {
+		if r.ClientCount() == 0 && now.Sub(r.LastActive()) > maxIdle {
+			delete(m.rooms, code)
+			stale = append(stale, r)
+		}
+	}
+	m.mu.Unlock()
+	for _, r := range stale {
+		r.Stop()
+	}
+	return len(stale)
+}
+
+// StartJanitor periodically reaps idle sessions until ctx is cancelled.
+func (m *Manager) StartJanitor(ctx context.Context, interval, maxIdle time.Duration) {
+	go func() {
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				m.Reap(maxIdle)
+			}
+		}
+	}()
+}
+
+// Close stops every session.
+func (m *Manager) Close() {
+	m.mu.Lock()
+	rooms := m.rooms
+	m.rooms = make(map[string]*Room)
+	m.mu.Unlock()
+	for _, r := range rooms {
+		r.Stop()
+	}
+}
+
+// GenerateRoomCode generates a cryptographically random room code of the form JKR-XXXX,
+// using an alphabet without ambiguous characters (no 0/O, 1/I/L).
 func GenerateRoomCode() string {
-	const charset = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-	b := make([]byte, 6)
+	const charset = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+	b := make([]byte, 4)
 	for i := range b {
 		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
 		b[i] = charset[n.Int64()]
 	}
-	return string(b)
-}
-
-// GenerateDeck produces a 52-card French deck shuffled deterministically using Fisher-Yates.
-func GenerateDeck() []models.Card {
-	deck := make([]models.Card, 0, 52)
-	for _, suit := range models.FrenchSuits {
-		for _, rank := range models.FrenchRanks {
-			deck = append(deck, models.Card{
-				Rank:  rank,
-				Suit:  suit,
-				Chips: models.RankChips[rank],
-			})
-		}
-	}
-
-	// Fisher-Yates shuffle
-	for i := len(deck) - 1; i > 0; i-- {
-		n, _ := rand.Int(rand.Reader, big.NewInt(int64(i+1)))
-		j := int(n.Int64())
-		deck[i], deck[j] = deck[j], deck[i]
-	}
-
-	return deck
+	return "JKR-" + string(b)
 }

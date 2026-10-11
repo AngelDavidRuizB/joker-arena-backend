@@ -7,28 +7,43 @@ import (
 	"time"
 )
 
-var roomCodeRegex = regexp.MustCompile(`^[A-Z0-9]{4,10}$`)
-var uuidRegex = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+// BotAlias is the reserved username of the bot opponent in the players table.
+const BotAlias = "Bot-JokerBot"
 
-// Match represents a persisted game record in the PostgreSQL matches table.
+// Match status values exposed through the API. In PostgreSQL they are derived from
+// matches.result: WAITING / IN_PROGRESS are stored verbatim; WIN / LOSE map to FINISHED.
+const (
+	StatusWaiting    = "WAITING"
+	StatusInProgress = "IN_PROGRESS"
+	StatusFinished   = "FINISHED"
+)
+
+// Result values stored in matches.result.
+const (
+	ResultWaiting    = "WAITING"
+	ResultInProgress = "IN_PROGRESS"
+	ResultWin        = "WIN"
+	ResultLose       = "LOSE"
+)
+
+// roomCodeRegex accepts codes such as JKR-A7K2 (generated) or JKR-402 (legacy docs).
+var roomCodeRegex = regexp.MustCompile(`^[A-Z0-9][A-Z0-9-]{2,11}$`)
+
+// playerIDRegex validates the numeric (SERIAL) player identifier, exposed as string.
+var playerIDRegex = regexp.MustCompile(`^[0-9]{1,9}$`)
+
+// Match represents a game record reconstructed from the PostgreSQL rooms/matches tables.
+// ID is the id_match of the host's participation row, exposed as string.
 type Match struct {
 	ID          string     `json:"id"`
 	RoomCode    string     `json:"room_code"`
 	TargetScore int        `json:"target_score"`
-	Status      string     `json:"status"` // 'WAITING', 'IN_PROGRESS', 'FINISHED'
-	WinnerID    *string    `json:"winner_id,omitempty"`
+	WithBot     bool       `json:"with_bot"`
+	Status      string     `json:"status"` // WAITING | IN_PROGRESS | FINISHED
+	Result      string     `json:"result"` // host result: WAITING | IN_PROGRESS | WIN | LOSE
+	HostID      string     `json:"host_id"`
 	StartedAt   time.Time  `json:"started_at"`
 	FinishedAt  *time.Time `json:"finished_at,omitempty"`
-}
-
-// MatchPlayer represents a participant linked to a match in match_players.
-type MatchPlayer struct {
-	MatchID      string `json:"match_id"`
-	PlayerID     string `json:"player_id"`
-	IsBot        bool   `json:"is_bot"`
-	FinalScore   int    `json:"final_score"`
-	HandsLeft    int    `json:"hands_left"`
-	DiscardsLeft int    `json:"discards_left"`
 }
 
 // CreateRoomRequest represents inbound POST /api/rooms payload.
@@ -55,6 +70,7 @@ type RoomDetailsResponse struct {
 	TargetScore  int       `json:"target_score"`
 	Status       string    `json:"status"`
 	WithBot      bool      `json:"with_bot"`
+	PlayerCount  int       `json:"player_count"`
 	HandsLeft    int       `json:"hands_left"`
 	DiscardsLeft int       `json:"discards_left"`
 	CurrentScore int       `json:"current_score"`
@@ -70,6 +86,7 @@ type HealthResponse struct {
 	Status   string `json:"status"`
 	Service  string `json:"service"`
 	Postgres string `json:"postgres"`
+	Storage  string `json:"storage"`
 }
 
 // ErrorResponse represents standard REST JSON error envelope.
@@ -89,7 +106,7 @@ func ValidateRoomCode(raw string) (string, error) {
 	return code, nil
 }
 
-// IsValidUUID validates UUID format.
-func IsValidUUID(raw string) bool {
-	return uuidRegex.MatchString(strings.TrimSpace(raw))
+// IsValidPlayerID validates the numeric player identifier format.
+func IsValidPlayerID(raw string) bool {
+	return playerIDRegex.MatchString(strings.TrimSpace(raw))
 }

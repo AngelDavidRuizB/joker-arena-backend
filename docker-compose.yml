@@ -1,26 +1,34 @@
+# ==============================================================================
+# JokerArena: Multiverse Poker Engine - Orquestación Docker Compose
+# Infraestructura de datos adoptada del equipo (docker-compose_2.yml):
+#   - PostgreSQL 16  -> appdb  / appuser (esquema create_db.sql)
+#   - MongoDB 7      -> casino_games / admin (mongo-init.js)
+# Todas las credenciales provienen de .env (ignorado por git). Ver .env.example.
+# Para usar el servidor remoto compartido, ver .env.remote.example.
+# ==============================================================================
 services:
   # ----------------------------------------------------------------------------
   # 1. Base de Datos Relacional: PostgreSQL 16 (Game Engine DB)
   # ----------------------------------------------------------------------------
   jokerarena-game-db:
-    image: postgres:16-alpine
+    image: postgres:16
     container_name: jokerarena-game-db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-jokerarena_db}
+      POSTGRES_USER: ${POSTGRES_USER:-appuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD en .env}
+      POSTGRES_DB: ${POSTGRES_DB:-appdb}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./db/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./db/postgres/create_db.sql:/docker-entrypoint-initdb.d/create_db.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d jokerarena_db"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
-      retries: 5
-      start_period: 5s
+      retries: 10
+      start_period: 10s
     networks:
       - jokerarena-net
 
@@ -28,21 +36,28 @@ services:
   # 2. Base de Datos NoSQL: MongoDB 7 (Telemetry DB)
   # ----------------------------------------------------------------------------
   jokerarena-telemetry-db:
-    image: mongo:latest
+    image: mongo:7
     container_name: jokerarena-telemetry-db
     restart: unless-stopped
     environment:
-      MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE:-jokerarena_telemetry}
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Defina MONGO_ROOT_PASSWORD en .env}
+      MONGO_INITDB_DATABASE: ${MONGO_DB:-casino_games}
     ports:
       - "${MONGO_PORT:-27017}:27017"
     volumes:
       - mongodata:/data/db
+      - ./db/mongo/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
     healthcheck:
-      test: ["CMD-SHELL", "echo 'db.runCommand(\"ping\").ok' | mongosh localhost:27017/test --quiet || exit 1"]
+      test:
+        - "CMD-SHELL"
+        - >-
+          mongosh --quiet -u "$$MONGO_INITDB_ROOT_USERNAME" -p "$$MONGO_INITDB_ROOT_PASSWORD"
+          --authenticationDatabase admin --eval "db.adminCommand('ping').ok" | grep -q 1
       interval: 5s
-      timeout: 5s
-      retries: 5
-      start_period: 5s
+      timeout: 10s
+      retries: 10
+      start_period: 15s
     networks:
       - jokerarena-net
 
@@ -58,8 +73,13 @@ services:
     environment:
       HTTP_PORT: 8000
       GRPC_PORT: 50051
-      MONGO_URL: ${TELEMETRY_MONGO_URL:-mongodb://jokerarena-telemetry-db:27017}
-      MONGO_DB: ${MONGO_INITDB_DATABASE:-jokerarena_telemetry}
+      # La contraseña se codifica en código (urllib.parse.quote_plus): admite '@'.
+      MONGO_HOST: ${TELEMETRY_MONGO_HOST:-jokerarena-telemetry-db}
+      MONGO_PORT: ${TELEMETRY_MONGO_PORT:-27017}
+      MONGO_USER: ${TELEMETRY_MONGO_USER:-${MONGO_ROOT_USER:-admin}}
+      MONGO_PASSWORD: ${TELEMETRY_MONGO_PASSWORD:-${MONGO_ROOT_PASSWORD}}
+      MONGO_AUTH_SOURCE: ${MONGO_AUTH_SOURCE:-admin}
+      MONGO_DB: ${MONGO_DB:-casino_games}
     ports:
       - "${TELEMETRY_HTTP_PORT:-8000}:8000"
       - "${TELEMETRY_GRPC_PORT:-50051}:50051"
@@ -71,7 +91,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 5s
+      start_period: 10s
     networks:
       - jokerarena-net
 
@@ -86,8 +106,16 @@ services:
     restart: unless-stopped
     environment:
       PORT: 8080
-      DB_URL: ${GAME_ENGINE_DB_URL:-postgres://postgres:postgres@jokerarena-game-db:5432/jokerarena_db?sslmode=disable}
+      STORAGE_MODE: ${STORAGE_MODE:-postgres}
+      # La contraseña se codifica en código (url.UserPassword): admite '@'.
+      DB_HOST: ${GAME_DB_HOST:-jokerarena-game-db}
+      DB_PORT: ${GAME_DB_PORT:-5432}
+      DB_USER: ${GAME_DB_USER:-${POSTGRES_USER:-appuser}}
+      DB_PASSWORD: ${GAME_DB_PASSWORD:-${POSTGRES_PASSWORD}}
+      DB_NAME: ${GAME_DB_NAME:-${POSTGRES_DB:-appdb}}
+      DB_SSLMODE: ${GAME_DB_SSLMODE:-disable}
       TELEMETRY_GRPC_ADDR: ${TELEMETRY_GRPC_ADDR:-jokerarena-telemetry-ms:50051}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
     ports:
       - "${GAME_ENGINE_PORT:-8080}:8080"
     depends_on:
@@ -100,7 +128,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 5s
+      start_period: 10s
     networks:
       - jokerarena-net
 

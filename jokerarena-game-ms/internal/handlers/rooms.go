@@ -2,24 +2,33 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
-	"github.com/google/uuid"
+	"jokerarena-game-ms/internal/db"
 	"jokerarena-game-ms/internal/models"
 	"jokerarena-game-ms/internal/room"
 )
 
+const maxTargetScore = 100000
+
 // HandleCreateRoom processes POST /api/rooms.
 func (h *Handler) HandleCreateRoom(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	var req models.CreateRoomRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		req.TargetScore = 300
+		WriteError(w, http.StatusBadRequest, "Invalid JSON payload")
+		return
 	}
 
 	targetScore := req.TargetScore
-	if targetScore <= 0 {
+	if targetScore == 0 {
 		targetScore = 300
+	}
+	if targetScore < 0 || targetScore > maxTargetScore {
+		WriteError(w, http.StatusBadRequest, "target_score must be between 1 and 100000")
+		return
 	}
 
 	withBot := true
@@ -32,36 +41,54 @@ func (h *Handler) HandleCreateRoom(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusBadRequest, "player_id is required")
 		return
 	}
-
-	// Validate player exists in repository (satisfies boundary B5.3)
-	if _, err := h.repo.GetPlayerByID(r.Context(), playerID); err != nil {
-		WriteError(w, http.StatusBadRequest, "Unknown player_id: "+playerID)
+	if !models.IsValidPlayerID(playerID) {
+		WriteError(w, http.StatusBadRequest, "Invalid player_id: "+playerID)
 		return
 	}
 
-	// Generate 6-char alphanumeric room code and UUID match ID
-	roomCode := room.GenerateRoomCode()
-	matchID := uuid.New().String()
-
-	// Persist match and participants into repository
-	if err := h.repo.CreateRoomMatch(r.Context(), matchID, roomCode, targetScore, playerID, withBot); err != nil {
-		WriteError(w, http.StatusInternalServerError, "Failed to persist room match: "+err.Error())
+	// Resolve the host (also validates it is a registered player).
+	host, err := h.repo.GetPlayerByID(r.Context(), playerID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			WriteError(w, http.StatusBadRequest, "Unknown player_id: "+playerID)
+			return
+		}
+		WriteStorageError(w, err, http.StatusInternalServerError, "Failed to look up player")
 		return
 	}
 
-	// Initialize active game session in memory with 8 dealt cards
-	session := h.roomMgr.CreateRoom(matchID, roomCode, targetScore, withBot, playerID)
-
-	resp := models.CreateRoomResponse{
-		RoomCode:    session.RoomCode,
-		MatchID:     session.MatchID,
-		TargetScore: session.TargetScore,
-		Status:      session.Status,
-		WithBot:     session.WithBot,
-		Players:     session.Players,
+	// Generate a unique JKR-XXXX code; the repository guarantees uniqueness atomically.
+	var roomCode, matchID string
+	for attempt := 0; attempt < 10; attempt++ {
+		roomCode = room.GenerateRoomCode()
+		matchID, err = h.repo.CreateRoomMatch(r.Context(), roomCode, targetScore, playerID, withBot)
+		if !errors.Is(err, db.ErrCodeTaken) {
+			break
+		}
+	}
+	if err != nil {
+		WriteStorageError(w, err, http.StatusInternalServerError, "Failed to persist room")
+		return
 	}
 
-	WriteJSON(w, http.StatusCreated, resp)
+	// Initialize the authoritative game session (shuffled deck, 8 cards dealt).
+	session := h.roomMgr.Create(room.Options{
+		MatchID:     matchID,
+		Code:        roomCode,
+		TargetScore: targetScore,
+		WithBot:     withBot,
+		Host:        room.PlayerInfo{ID: host.ID, Alias: host.Alias},
+	})
+	d := session.ToDetailsResponse()
+
+	WriteJSON(w, http.StatusCreated, models.CreateRoomResponse{
+		RoomCode:    d.RoomCode,
+		MatchID:     d.MatchID,
+		TargetScore: d.TargetScore,
+		Status:      d.Status,
+		WithBot:     d.WithBot,
+		Players:     d.Players,
+	})
 }
 
 // HandleGetRoom processes GET /api/rooms/{code} with case-insensitive lookup.
@@ -78,35 +105,33 @@ func (h *Handler) HandleGetRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. Check in-memory session (contains active dealt cards)
-	if session, found := h.roomMgr.GetRoom(cleanCode); found {
+	// 1. Active in-memory session (contains the live game state)
+	if session, found := h.roomMgr.Get(cleanCode); found {
 		WriteJSON(w, http.StatusOK, session.ToDetailsResponse())
 		return
 	}
 
-	// 2. Fallback to database query if session not in active memory
+	// 2. Persisted room that is not active in memory (e.g. after a restart)
 	match, players, err := h.repo.GetMatchByCode(r.Context(), cleanCode)
-	if err != nil || match == nil {
-		WriteError(w, http.StatusNotFound, "Room not found")
+	if err != nil {
+		WriteStorageError(w, err, http.StatusInternalServerError, "Room not found")
 		return
 	}
 
-	// Reconstruct response from persistent match
-	resp := models.RoomDetailsResponse{
+	WriteJSON(w, http.StatusOK, models.RoomDetailsResponse{
 		RoomCode:     match.RoomCode,
 		MatchID:      match.ID,
 		TargetScore:  match.TargetScore,
 		Status:       match.Status,
-		WithBot:      len(players) > 1,
-		HandsLeft:    4,
-		DiscardsLeft: 3,
+		WithBot:      match.WithBot,
+		PlayerCount:  len(players),
+		HandsLeft:    0,
+		DiscardsLeft: 0,
 		CurrentScore: 0,
-		DeckCount:    44,
+		DeckCount:    0,
 		ActiveJokers: []string{"banner", "joker", "the_duo"},
 		CardsInHand:  []models.Card{},
 		Players:      players,
 		CreatedAt:    match.StartedAt,
-	}
-
-	WriteJSON(w, http.StatusOK, resp)
+	})
 }

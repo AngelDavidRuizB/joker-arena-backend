@@ -9,12 +9,13 @@ import (
 
 // Handler holds dependencies for all Game Engine endpoints.
 type Handler struct {
-	repo    db.Repository
-	roomMgr *room.RoomManager
+	repo           db.Repository
+	roomMgr        *room.Manager
+	allowedOrigins []string
 }
 
 // NewHandler creates a new Handler instance.
-func NewHandler(repo db.Repository, roomMgr *room.RoomManager) *Handler {
+func NewHandler(repo db.Repository, roomMgr *room.Manager) *Handler {
 	return &Handler{
 		repo:    repo,
 		roomMgr: roomMgr,
@@ -22,7 +23,8 @@ func NewHandler(repo db.Repository, roomMgr *room.RoomManager) *Handler {
 }
 
 // NewRouter constructs an http.Handler with Go 1.22 ServeMux and CORS middleware.
-func NewRouter(h *Handler) http.Handler {
+func NewRouter(h *Handler, allowedOrigins []string) http.Handler {
+	h.allowedOrigins = allowedOrigins
 	mux := http.NewServeMux()
 
 	// Health check
@@ -33,7 +35,7 @@ func NewRouter(h *Handler) http.Handler {
 	mux.HandleFunc("POST /api/rooms", h.HandleCreateRoom)
 	mux.HandleFunc("GET /api/rooms/{code}", h.HandleGetRoom)
 
-	// Boundary routes for empty room code (Boundary B2.3)
+	// Boundary routes for empty room code
 	mux.HandleFunc("GET /api/rooms", func(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusNotFound, "Room code required")
 	})
@@ -45,5 +47,5 @@ func NewRouter(h *Handler) http.Handler {
 	mux.HandleFunc("/ws", h.HandleWebSocket)
 	mux.HandleFunc("/ws/{code}", h.HandleWebSocket)
 
-	return CORSMiddleware(mux)
+	return CORSMiddleware(mux, allowedOrigins)
 }

@@ -1,165 +1,119 @@
-# Joker Arena - Backend & Distributed Architecture 🃏🏛️
+# JokerArena: Multiverse Poker Engine 🃏
 
-Backend distribuido, microservicios, bases de datos y suites de prueba para **Joker Arena: Multiverse Poker Engine**, un sistema de juego de póker multiversal con simulación en tiempo real, persistencia híbrida (SQL + NoSQL), comunicación inter-servicio de alto desempeño (gRPC) e inferencia de telemetría y analítica.
+Videojuego web distribuido de póker con *Jokers* en tiempo real, inspirado en la mecánica de puntuación de *Balatro*. Prototipo 1 de Arquitectura de Software 2026-II (Universidad Nacional de Colombia). Todo el sistema se despliega con **Docker Compose**.
+
+**Alcance implementado (F1–F5):** registro por alias · salas con código `JKR-XXXX` y modo Bot · sincronización en tiempo real por WebSocket (baraja de 52, mano de 8 cartas) · jugar/descartar de 1 a 5 cartas con reconocimiento de las 9 manos de póker · cascada de puntuación con los 3 Jokers (Banner → Joker Clásico → The Duo) bajo la fórmula Chips × Mult · cierre de partida (meta de puntos o 4 manos agotadas) persistido en PostgreSQL.
 
 ---
 
-## 🏗️ Arquitectura del Sistema
-
-El backend se estructura bajo un enfoque de **Microservicios** con separación estricta de responsabilidades:
+## 🏗️ Arquitectura
 
 ```mermaid
 graph TD
-    subgraph Frontend Client
-        FE[React SPA Client - jokerarena-fe]
-    end
+    FE["jokerarena-fe · React + TS + Tailwind + Framer Motion (Nginx :3000)"]
+    GE["jokerarena-game-ms · Go · REST + WebSocket :8080"]
+    TM["jokerarena-telemetry-ms · Python FastAPI :8000 / gRPC :50051"]
+    PG[("PostgreSQL 16 · appdb :5432")]
+    MG[("MongoDB 7 · casino_games :27017")]
 
-    subgraph Backend Ecosystem - jokerarena-backend
-        GE[Game Engine MS - Go :8080]
-        TM[Telemetry MS - Python FastAPI/gRPC :8000 / :50051]
-        PG[(PostgreSQL 16 - Relational DB :5432)]
-        MG[(MongoDB 7 - Document DB :27017)]
-    end
-
-    FE -->|HTTP / WebSocket| GE
-    FE -->|HTTP REST / Analytics| TM
-    GE -->|gRPC / Protobuf| TM
-    GE -->|SQL Transactions / GORM| PG
-    TM -->|Motor / PyMongo Docs| MG
+    FE -->|"C1 REST /api"| GE
+    FE <-->|"C2 WebSocket /ws/{code}"| GE
+    FE -->|"C3 REST /telemetry"| TM
+    GE -->|"C6 SQL (pgx)"| PG
+    TM -->|"C7 (motor)"| MG
 ```
 
-### Componentes Principales:
+| Servicio | Tecnología | Responsabilidad |
+|---|---|---|
+| `jokerarena-fe` | React 18, Vite, TypeScript, Tailwind, Framer Motion, Zustand | Interfaz neón: registro, lobby, tapete, cascada de puntuación y auditoría en vivo. Nginx hace de proxy mismo-origen (`/api`, `/ws`, `/telemetry`). |
+| `jokerarena-game-ms` | Go 1.22, `gorilla/websocket`, `pgx/v5` | Motor **autoritativo**: una goroutine por sala (patrón actor), baraja con semilla, evaluador de manos, Jokers, persistencia. |
+| `jokerarena-telemetry-ms` | Python 3.12, FastAPI, Motor, gRPC | Ingesta de eventos de mano (REST y gRPC) en MongoDB, `/health` y `/docs`. |
+| `jokerarena-game-db` | PostgreSQL 16 | Esquema del equipo: `players`, `rooms`, `matches` (`db/postgres/create_db.sql`). |
+| `jokerarena-telemetry-db` | MongoDB 7 | Base `casino_games` (colecciones `hands`, `players`, `rooms`; `db/mongo/mongo-init.js`). |
 
-1. **Game Engine & Session Manager (`jokerarena-game-ms`)**:
-   - Desarrollado en **Go (Golang)**.
-   - Administra el estado de la partida, manos, barajas, validación de reglas de póker y sesiones concurrentes.
-   - Conexión relacional transaccional con PostgreSQL para usuarios, salas y auditoría.
-   - Cliente gRPC que transmite eventos de telemetría en tiempo real hacia el servicio de telemetría.
-
-2. **Telemetry & Analytics Service (`jokerarena-telemetry-ms`)**:
-   - Desarrollado en **Python 3.12** con **FastAPI** y servidor **gRPC**.
-   - Consume eventos a través del contrato Protocol Buffers (`telemetry.proto`).
-   - Persiste métricas no estructuradas, eventos de manos y telemetría de jugadores en **MongoDB**.
-   - Expone endpoints REST para consumo analítico y tableros de control.
-
-3. **Bases de Datos**:
-   - **PostgreSQL 16**: Base de datos relacional para datos estructurados (tablas inicializadas en `db/postgres/init.sql`).
-   - **MongoDB 7**: Almacén documental para eventos masivos y telemetría de juego.
-
-4. **Protocol Buffers (`proto/`)**:
-   - Contratos de interfaz gRPC unificados para la comunicación tipada y eficiente entre Go y Python.
-
-5. **Suites de Pruebas de Integración y E2E (`tests/`)**:
-   - Pruebas exhaustivas (Tiers 1 al 4, escenarios adversariales, telemetría e integridad Docker).
+> Conectores C4 (SSE) y C5 (despacho gRPC desde el Game Engine) corresponden a F6 y no forman parte de este alcance; el servidor gRPC y el contrato `proto/telemetry.proto` sí están disponibles en telemetría.
 
 ---
 
-## 📋 Requisitos Previos
+## 🚀 Puesta en marcha
 
-- [Docker](https://www.docker.com/) y **Docker Compose v2+** (método recomendado de ejecución unificada).
-- [Go 1.22+](https://go.dev/) (para desarrollo local del Game Engine).
-- [Python 3.12+](https://www.python.org/) (para desarrollo local del Telemetry Service y ejecución de tests).
-- [PostgreSQL](https://www.postgresql.org/) y [MongoDB](https://www.mongodb.com/) (si se ejecutan fuera de Docker).
+Requisitos: Docker Engine 24+ y Docker Compose v2+.
 
----
+```bash
+cp .env.example .env        # y complete las claves <password-...> con las credenciales del equipo
+docker compose up --build -d
+docker compose ps           # los 5 servicios deben quedar "healthy"
+```
 
-## 🚀 Despliegue Rápido con Docker Compose
+| Componente | URL |
+|---|---|
+| Aplicación web | http://localhost:3000 |
+| Game Engine | http://localhost:8080/health · `ws://localhost:8080/ws/{code}` |
+| Telemetría | http://localhost:8000/docs · http://localhost:8000/health · gRPC `localhost:50051` |
+| PostgreSQL | `localhost:5432` · BD `appdb` · usuario `appuser` |
+| MongoDB | `localhost:27017` · BD `casino_games` · usuario `admin` (`authSource=admin`) |
 
-1. **Configurar variables de entorno**:
-   Copie el archivo de ejemplo para configurar los puertos y credenciales:
-   ```bash
-   cp .env.example .env
-   ```
+Si un puerto del host está ocupado, cambie `POSTGRES_PORT`, `GAME_ENGINE_PORT`, `MONGO_PORT`, etc. en `.env`. Para detener: `docker compose down` (añada `-v` para borrar los datos).
 
-2. **Iniciar los servicios**:
-   ```bash
-   docker compose up -d --build
-   ```
+### Usar la base PostgreSQL remota compartida
+Copie las variables de `.env.remote.example` a `.env` (`GAME_DB_HOST`, `GAME_DB_USER`, `GAME_DB_PASSWORD`…). El esquema ya existe en el servidor y no se modifica. **No ejecute pruebas destructivas contra esa base.**
 
-3. **Verificar el estado de los contenedores**:
-   ```bash
-   docker compose ps
-   ```
-
-   Los microservicios quedarán disponibles en:
-   - **Game Engine**: `http://localhost:8080` (Healthcheck: `http://localhost:8080/health`)
-   - **Telemetry API**: `http://localhost:8000` (Docs Swagger: `http://localhost:8000/docs`, Healthcheck: `http://localhost:8000/health`)
-   - **Telemetry gRPC**: `localhost:50051`
-   - **PostgreSQL**: `localhost:5432`
-   - **MongoDB**: `localhost:27017`
-
-4. **Detener los servicios**:
-   ```bash
-   docker compose down
-   ```
+### Variables de entorno relevantes
+| Variable | Descripción |
+|---|---|
+| `POSTGRES_*`, `MONGO_*` | Credenciales y puertos de los contenedores de datos (solo en `.env`, que está en `.gitignore`). |
+| `STORAGE_MODE` | `postgres` (defecto, persistente; devuelve 503 si la BD cae) o `memory` (solo pruebas, sin persistencia). |
+| `GAME_DB_HOST/PORT/USER/PASSWORD/NAME` | Permite apuntar el Game Engine a otro PostgreSQL. La contraseña se codifica en código, admite `@`. |
+| `ALLOWED_ORIGINS` | Orígenes adicionales permitidos para WebSocket/CORS (el mismo origen y `localhost` siempre se permiten). |
 
 ---
 
-## 🧪 Ejecución de Pruebas
-
-El repositorio incluye suites completas de pruebas automatizadas en `tests/`:
-
-1. **Instalar dependencias de pruebas**:
-   ```bash
-   cd tests
-   pip install -r requirements.txt
-   ```
-
-2. **Ejecutar el runner End-to-End**:
-   ```bash
-   python e2e_runner.py
-   ```
-
-3. **Ejecutar suites individuales con pytest**:
-   ```bash
-   pytest test_tier1_features.py -v
-   pytest test_tier2_boundaries.py -v
-   pytest test_tier3_integration.py -v
-   pytest test_tier4_scenarios.py -v
-   pytest test_m2_telemetry.py -v
-   pytest test_m1_adversarial_challenge.py -v
-   pytest test_dockerfiles_integrity.py -v
-   ```
+## 🎮 Cómo se juega
+1. Regístrate con un alias (sin contraseña).
+2. Crea una sala (meta 300/600/1200, con o sin Bot) o únete con un código. Quien no es dueño de la sala entra como espectador.
+3. Selecciona hasta 5 cartas (clic o teclas `1–8`) y **Jugar mano** (`P`) o **Descartar** (`D`). Tienes 4 manos y 3 descartes.
+4. Puntaje = `(fichas de la mano + fichas de las cartas que puntúan + 30 × descartes restantes) × ((mult de la mano + 4) × 2 si hay pareja)`. Ejemplo: Full House K♠K♥K♣4♦4♠ sin descartes = 78 × 16 = **1248**.
+5. Ganas al alcanzar la meta; pierdes si agotas las 4 manos.
 
 ---
 
-## 📁 Estructura del Repositorio
+## 🧪 Pruebas
+
+```bash
+# Game Engine (Go) – dentro de un contenedor, contra el PostgreSQL del compose
+docker run --rm --network prototipo1_jokerarena-net -v "%cd%/jokerarena-game-ms:/src" -v gomodcache:/go/pkg/mod -w /src \
+  -e TEST_DATABASE_URL="postgres://appuser:<password-url-encoded>@jokerarena-game-db:5432/appdb?sslmode=disable" \
+  golang:1.22-alpine sh -c "go vet ./... && go test ./... -count=1"
+
+# Frontend
+cd jokerarena-fe && npm ci && npm test && npm run build
+
+# Integración / E2E Python (requiere el stack levantado)
+python -m venv .venv && .venv/Scripts/pip install -r tests/requirements.txt
+.venv/Scripts/python -m pytest tests -q
+```
+
+Cobertura destacada: evaluador y puntuación (`internal/poker`, incluye el caso de 1248), actor de sala y protocolo WebSocket, contrato del repositorio contra PostgreSQL real, partidas completas por WebSocket (`tests/test_ws_game_flow.py`) y componentes React (selección máx. 5, validaciones, cascada).
+
+---
+
+## 📁 Estructura
 
 ```text
 .
 ├── db/
-│   └── postgres/
-│       └── init.sql                 # Script DDL de inicialización relacional
-├── jokerarena-game-ms/              # Microservicio en Go (Game Engine)
-│   ├── Dockerfile
-│   ├── go.mod
-│   └── main.go
-├── jokerarena-telemetry-ms/         # Microservicio en Python (Telemetry)
-│   ├── app/                         # Rutas, modelos y servidor gRPC
-│   ├── proto/                       # Stubs generados de gRPC
-│   ├── Dockerfile
-│   ├── main.py
-│   └── requirements.txt
-├── proto/                           # Definiciones Protobuf compartidas
-│   └── telemetry.proto
-├── tests/                           # Suites de pruebas E2E e integración
-│   ├── e2e_runner.py
-│   ├── test_*.py
-│   └── requirements.txt
-├── docker-compose.yml               # Orquestación de contenedores
-├── .env.example                     # Plantilla de variables de entorno
-└── README.md                        # Documentación técnica del backend
+│   ├── postgres/create_db.sql      # DDL del esquema del equipo (players, rooms, matches)
+│   └── mongo/mongo-init.js         # Inicialización de casino_games
+├── jokerarena-game-ms/             # Go: config, db (pgx), models, poker, room (actor), handlers (REST + WS)
+├── jokerarena-telemetry-ms/        # Python: FastAPI + gRPC + Motor
+├── jokerarena-fe/                  # React/TS (repositorio independiente)
+├── proto/telemetry.proto           # Contrato gRPC (C5)
+├── tests/                          # Suites Python (integración, E2E, WebSocket)
+├── docker-compose.yml · .env.example · .env.remote.example
+├── p1_X.md                         # Documento de arquitectura (entregable)
+└── GUIA_SUSTENTACION.md            # Guion de la sustentación
 ```
 
----
+Frontend: <https://github.com/AngelDavidRuizB/joker-arena-frontend>
 
-## 🌐 Repositorio Frontend Relacionado
-
-Para la interfaz de usuario web, visita:
-👉 [Joker Arena Frontend Client](https://github.com/AngelDavidRuizB/joker-arena-frontend)
-
----
-
-## 📄 Licencia
-
-Desarrollado con fines académicos para la asignatura de **Arquitectura de Software** (Universidad, 2026).
+Desarrollado con fines académicos para la asignatura **Arquitectura de Software** (2026-II).

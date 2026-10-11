@@ -104,7 +104,7 @@ def test_frontend_dockerfile():
 
     froms = [args for inst, args in instructions if inst == "FROM"]
     assert len(froms) == 2
-    assert "node:22-alpine" in froms[0]
+    assert "node:20-alpine" in froms[0]  # node:22-alpine fails with 'exec format error' on some Docker Desktop hosts
     assert "nginx:1.27-alpine" in froms[1]
     print(f"[OK] Multistage builder/runtime declared: {froms}")
 

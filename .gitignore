@@ -51,3 +51,4 @@ Thumbs.db
 # Sub-repository frontend
 jokerarena-fe/
 .agents/
+tmp_*.json

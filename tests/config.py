@@ -48,12 +48,14 @@ GAME_ENGINE_WS_URL = f"ws://{TARGET_HOST}:{GAME_ENGINE_PORT}"
 TELEMETRY_HTTP_URL = f"http://{TARGET_HOST}:{TELEMETRY_HTTP_PORT}"
 TELEMETRY_GRPC_ADDR = f"{TARGET_HOST}:{TELEMETRY_GRPC_PORT}"
 
-# Database Settings
-POSTGRES_USER = get_conf("POSTGRES_USER", "postgres")
-POSTGRES_PASSWORD = get_conf("POSTGRES_PASSWORD", "postgres")
-POSTGRES_DB = get_conf("POSTGRES_DB", "jokerarena_db")
+# Database Settings (credentials come from .env, never hard-coded)
+POSTGRES_USER = get_conf("POSTGRES_USER", "appuser")
+POSTGRES_PASSWORD = get_conf("POSTGRES_PASSWORD", "")
+POSTGRES_DB = get_conf("POSTGRES_DB", "appdb")
 
-MONGO_DB = get_conf("MONGO_INITDB_DATABASE", "jokerarena_telemetry")
+MONGO_DB = get_conf("MONGO_DB", "casino_games")
+MONGO_ROOT_USER = get_conf("MONGO_ROOT_USER", "admin")
+MONGO_ROOT_PASSWORD = get_conf("MONGO_ROOT_PASSWORD", "")
 
 # Test Run Mode
 def is_mock_mode() -> bool:

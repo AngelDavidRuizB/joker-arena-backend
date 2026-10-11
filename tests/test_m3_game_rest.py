@@ -34,7 +34,7 @@ from tests.test_client import (
     NetworkProbe,
     PostgresTestClient,
     RESTClient,
-    is_valid_uuid,
+    is_valid_player_id,
     validate_french_card,
 )
 
@@ -83,11 +83,11 @@ class TestM3GameREST(unittest.TestCase):
             code, data = self.mock_server.register_player(alias)
             self.assertEqual(code, 201)
 
-        self.assertTrue(is_valid_uuid(data["id"]))
+        self.assertTrue(is_valid_player_id(data["id"]))
         self.assertEqual(data["alias"], alias)
 
     def test_03_player_registration_schema_fields(self):
-        """M3.3: Player registration response contains id, alias, total_wins, and created_at."""
+        """M3.3: Player registration response contains id, alias and created_at."""
         alias = f"Schema_{uuid.uuid4().hex[:4]}"
         if self.is_game_engine_live and not self.mock_mode:
             res = self.rest_client.register_player(alias)
@@ -95,20 +95,20 @@ class TestM3GameREST(unittest.TestCase):
         else:
             _, data = self.mock_server.register_player(alias)
 
-        for key in ["id", "alias", "total_wins", "created_at"]:
+        for key in ["id", "alias", "created_at"]:
             self.assertIn(key, data, f"Required field '{key}' missing from player response")
-        self.assertEqual(data["total_wins"], 0)
+        self.assertNotIn("total_wins", data)
 
     def test_04_player_min_length_alias(self):
-        """M3.4: 2-character alias is accepted with HTTP 201 Created."""
+        """M3.4: 2-character alias is accepted (201 new, 200 if it already exists)."""
         alias = f"A{uuid.uuid4().hex[:1]}"
         self.assertEqual(len(alias), 2)
         if self.is_game_engine_live and not self.mock_mode:
             res = self.rest_client.register_player(alias)
-            self.assertEqual(res.status_code, 201)
+            self.assertIn(res.status_code, (200, 201))
         else:
             code, _ = self.mock_server.register_player(alias)
-            self.assertEqual(code, 201)
+            self.assertIn(code, (200, 201))
 
     def test_05_player_max_length_alias(self):
         """M3.5: Exactly 30-character alias is accepted with HTTP 201 Created."""
@@ -203,7 +203,7 @@ class TestM3GameREST(unittest.TestCase):
     # ==========================================================================
 
     def test_12_room_creation_happy_path(self):
-        """M3.12: POST /api/rooms creates room with 6-char code, match_id, and WAITING status."""
+        """M3.12: POST /api/rooms creates a JKR-XXXX room code, match_id, and WAITING status."""
         alias = f"Host_{uuid.uuid4().hex[:4]}"
         if self.is_game_engine_live and not self.mock_mode:
             p_id = self.rest_client.register_player(alias).json()["id"]
@@ -217,7 +217,7 @@ class TestM3GameREST(unittest.TestCase):
 
         self.assertIn("room_code", data)
         self.assertGreaterEqual(len(data["room_code"]), 6)
-        self.assertTrue(is_valid_uuid(data["match_id"]))
+        self.assertTrue(is_valid_player_id(data["match_id"]))
         self.assertEqual(data["status"], "WAITING")
         self.assertTrue(data.get("with_bot", True))
 
@@ -357,8 +357,8 @@ class TestM3GameREST(unittest.TestCase):
             self.assertEqual(p_res.status_code, 201)
             player_id = p_res.json()["id"]
 
-            # Query players table
-            p_rows = self.pg_client.query("SELECT alias, total_wins FROM players WHERE id=%s", (player_id,))
+            # Query players table (alias is stored in players.username)
+            p_rows = self.pg_client.query("SELECT username FROM players WHERE id_player=%s", (int(player_id),))
             self.assertEqual(len(p_rows), 1)
             self.assertEqual(p_rows[0][0], alias)
 
@@ -368,16 +368,18 @@ class TestM3GameREST(unittest.TestCase):
             match_id = r_res.json()["match_id"]
             room_code = r_res.json()["room_code"]
 
-            # Query matches table
-            m_rows = self.pg_client.query("SELECT room_code, status FROM matches WHERE id=%s", (match_id,))
+            # The room code is stored in rooms.name; one matches row per participant
+            m_rows = self.pg_client.query(
+                "SELECT r.name, m.result FROM matches m JOIN rooms r ON r.id_room = m.id_room WHERE m.id_match=%s",
+                (int(match_id),),
+            )
             self.assertEqual(len(m_rows), 1)
             self.assertEqual(m_rows[0][0], room_code)
             self.assertEqual(m_rows[0][1], "WAITING")
 
-            # Query match_players table
             mp_rows = self.pg_client.query(
-                "SELECT player_id, is_bot FROM match_players WHERE match_id=%s ORDER BY is_bot ASC",
-                (match_id,),
+                "SELECT m.id_player FROM matches m JOIN rooms r ON r.id_room = m.id_room WHERE r.name=%s",
+                (room_code,),
             )
             self.assertGreaterEqual(len(mp_rows), 2)
         else:

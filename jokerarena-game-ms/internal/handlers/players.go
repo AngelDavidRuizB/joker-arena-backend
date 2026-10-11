@@ -9,6 +9,7 @@ import (
 
 // HandleRegisterPlayer processes POST /api/players with anti-XSS validation and idempotent upsert.
 func (h *Handler) HandleRegisterPlayer(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	var req models.RegisterPlayerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		WriteError(w, http.StatusBadRequest, "Invalid JSON payload")
@@ -23,7 +24,7 @@ func (h *Handler) HandleRegisterPlayer(w http.ResponseWriter, r *http.Request) {
 
 	player, isNew, err := h.repo.RegisterPlayer(r.Context(), cleanAlias)
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, "Failed to register player: "+err.Error())
+		WriteStorageError(w, err, http.StatusInternalServerError, "Failed to register player")
 		return
 	}
 

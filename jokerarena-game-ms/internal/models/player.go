@@ -9,11 +9,11 @@ import (
 
 var aliasRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
-// Player represents a registered participant persisted in PostgreSQL.
+// Player represents a registered participant persisted in the PostgreSQL players table.
+// ID is the SERIAL id_player exposed as a string; Alias maps to the username column.
 type Player struct {
 	ID        string    `json:"id"`
 	Alias     string    `json:"alias"`
-	TotalWins int       `json:"total_wins"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -30,6 +30,9 @@ func ValidateAlias(raw string) (string, error) {
 	}
 	if !aliasRegex.MatchString(alias) {
 		return "", fmt.Errorf("alias contains invalid characters (alphanumeric, underscore, and hyphen only)")
+	}
+	if strings.EqualFold(alias, BotAlias) {
+		return "", fmt.Errorf("alias is reserved")
 	}
 	return alias, nil
 }
