@@ -83,6 +83,15 @@ type Room struct {
 	lastActive   time.Time
 	createdAt    time.Time
 
+	// Bot opponent state (populated only when opts.WithBot). The bot owns its own dealer
+	// derived from the host seed, so its deck is deterministic yet independent of the host's.
+	botDealer       *poker.Dealer
+	botHand         []models.Card
+	botScore        int
+	botHandsLeft    int
+	botDiscardsLeft int
+	botHandNumber   int
+
 	clients map[*Client]struct{} // owned by the actor goroutine
 }
 
@@ -119,6 +128,12 @@ func newRoom(opts Options, persister Persister) *Room {
 		lastActive:   now,
 		createdAt:    now,
 		clients:      make(map[*Client]struct{}),
+	}
+	if opts.WithBot {
+		r.botDealer = poker.NewDealer(seed ^ 0xB07)
+		r.botHand = r.botDealer.Draw(HandSize)
+		r.botHandsLeft = InitialHands
+		r.botDiscardsLeft = InitialDiscards
 	}
 	go r.run()
 	return r
@@ -209,6 +224,11 @@ func (r *Room) snapshotLocked() StatePayload {
 
 		HandsTotal:    InitialHands,
 		DiscardsTotal: InitialDiscards,
+
+		BotScore:        r.botScore,
+		BotHandsLeft:    r.botHandsLeft,
+		BotHandNumber:   r.botHandNumber,
+		BotDiscardsLeft: r.botDiscardsLeft,
 	}
 }
 
@@ -490,12 +510,98 @@ func (r *Room) doPlay(sorted []int, discardsLeft int) {
 		Breakdown:        *breakdown,
 	}
 
-	var finished *MatchFinishedPayload
+	// The host PLAY may already decide the match: either the host hit the target, or the
+	// host ran out of hands (settled by score comparison against the bot). When it does,
+	// the bot does NOT take a turn.
+	finished := r.finishAfterHostPlayLocked()
+	r.mu.Unlock()
+
+	r.broadcast(marshal(MsgHandScored, scored))
+	r.broadcastState()
+	if finished != nil {
+		r.broadcast(marshal(MsgMatchDone, finished))
+		return
+	}
+	if r.opts.WithBot {
+		r.botTakeTurn()
+	}
+}
+
+// finishAfterHostPlayLocked applies the end-of-match rule triggered by a host PLAY. Caller
+// holds mu. It returns a finished payload (and marks the room FINISHED) when the match ends,
+// or nil to let play continue (and, with a bot, let the bot take its turn).
+//
+// Rules (host perspective):
+//   - host reaches the target        -> WIN,  winner=host, TARGET_SCORE_REACHED
+//   - host hands exhausted (no bot)   -> LOSE, HANDS_EXHAUSTED (unchanged legacy behavior)
+//   - host hands exhausted (with bot) -> score comparison: host>bot WIN winner=host,
+//     otherwise LOSE winner=bot; HANDS_EXHAUSTED
+func (r *Room) finishAfterHostPlayLocked() *MatchFinishedPayload {
 	switch {
 	case r.score >= r.opts.TargetScore:
-		finished = r.finishLocked(true, "TARGET_SCORE_REACHED")
+		return r.finishLocked(true, "TARGET_SCORE_REACHED")
 	case r.handsLeft <= 0:
-		finished = r.finishLocked(false, "HANDS_EXHAUSTED")
+		if r.opts.WithBot && r.score <= r.botScore {
+			return r.finishLocked(false, "HANDS_EXHAUSTED")
+		}
+		// No bot: legacy LOSE. With bot and host ahead: WIN.
+		return r.finishLocked(r.opts.WithBot && r.score > r.botScore, "HANDS_EXHAUSTED")
+	}
+	return nil
+}
+
+// botTakeTurn runs the bot's single reactive action after a host PLAY that did not finish
+// the match. The bot either PLAYs (scoring, consuming a hand) or DISCARDs (refilling, no
+// score, no hand consumed). It mutates the bot fields under r.mu, broadcasting the bot's
+// HAND_SCORED (on a PLAY) followed by a ROOM_STATE_UPDATE, so the per-round order observed
+// by clients is: host HAND_SCORED, host STATE, bot HAND_SCORED (play only), bot STATE.
+func (r *Room) botTakeTurn() {
+	r.mu.Lock()
+
+	action, indices := poker.BotDecision(r.botHand, r.botDiscardsLeft)
+
+	if action == "DISCARD" {
+		sorted := append([]int(nil), indices...)
+		sort.Ints(sorted)
+		r.replaceBotCards(sorted)
+		r.botDiscardsLeft--
+		r.mu.Unlock()
+		r.broadcastState()
+		return
+	}
+
+	// PLAY: score the selection against the bot's remaining discards.
+	selected := make([]models.Card, len(indices))
+	for i, idx := range indices {
+		selected[i] = r.botHand[idx]
+	}
+	breakdown, err := poker.Score(selected, r.botDiscardsLeft)
+	if err != nil { // cannot happen: BestPlay only returns valid 1..5 selections
+		r.mu.Unlock()
+		log.Printf("[ERROR] bot score failed in %s: %v", r.opts.Code, err)
+		return
+	}
+	sorted := append([]int(nil), indices...)
+	sort.Ints(sorted)
+	r.replaceBotCards(sorted)
+	r.botHandsLeft--
+	r.botHandNumber++
+	r.botScore += breakdown.Score
+
+	scored := HandScoredPayload{
+		RoomCode:         r.opts.Code,
+		MatchID:          r.opts.MatchID,
+		PlayerID:         BotPlayerID,
+		HandNumber:       r.botHandNumber,
+		AccumulatedScore: r.botScore,
+		Timestamp:        time.Now().UTC(),
+		Breakdown:        *breakdown,
+	}
+
+	// The bot can win by reaching the target before the host does (rule b).
+	var finished *MatchFinishedPayload
+	if r.status != models.StatusFinished && r.botScore >= r.opts.TargetScore && r.score < r.opts.TargetScore {
+		finished = r.finishLocked(false, "TARGET_SCORE_REACHED")
 	}
 	r.mu.Unlock()
 
@@ -504,6 +610,29 @@ func (r *Room) doPlay(sorted []int, discardsLeft int) {
 	if finished != nil {
 		r.broadcast(marshal(MsgMatchDone, finished))
 	}
+}
+
+// replaceBotCards is replaceCards for the bot's hand/dealer. Caller holds mu.
+func (r *Room) replaceBotCards(sorted []int) {
+	removed := make(map[int]bool, len(sorted))
+	for _, i := range sorted {
+		removed[i] = true
+	}
+	kept := make([]models.Card, 0, len(r.botHand))
+	taken := make([]models.Card, 0, len(sorted))
+	for i, c := range r.botHand {
+		if removed[i] {
+			taken = append(taken, c)
+		} else {
+			kept = append(kept, c)
+		}
+	}
+	kept = append(kept, r.botDealer.Draw(HandSize-len(kept))...)
+	r.botDealer.Discard(taken)
+	if len(kept) < HandSize {
+		log.Printf("[ERROR] bot dealer short draw in %s: hand has %d cards", r.opts.Code, len(kept))
+	}
+	r.botHand = kept
 }
 
 // finishLocked closes the match and persists the outcome. Caller holds mu.

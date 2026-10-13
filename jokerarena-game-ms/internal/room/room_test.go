@@ -293,18 +293,269 @@ func TestWinWhenTargetReached(t *testing.T) {
 	expect[MatchFinishedPayload](t, late, MsgMatchDone)
 }
 
+// drainUntilFinished reads every queued message, tracking the last host and bot scores
+// seen in STATE/HAND_SCORED frames, and returns once MATCH_FINISHED arrives. The win rule
+// changed to a host-vs-bot score comparison, so the expected winner is derived from the
+// observed final scores rather than hard-coded.
+func drainUntilFinished(t *testing.T, c *Client) (fin MatchFinishedPayload, hostScore, botScore int) {
+	t.Helper()
+	for {
+		typ, payload := next(t, c)
+		switch typ {
+		case MsgHandScored:
+			var hs HandScoredPayload
+			if err := json.Unmarshal(payload, &hs); err != nil {
+				t.Fatal(err)
+			}
+			if hs.PlayerID == BotPlayerID {
+				botScore = hs.AccumulatedScore
+			} else {
+				hostScore = hs.AccumulatedScore
+			}
+		case MsgRoomState:
+			var st StatePayload
+			if err := json.Unmarshal(payload, &st); err != nil {
+				t.Fatal(err)
+			}
+			hostScore, botScore = st.CurrentScore, st.BotScore
+		case MsgMatchDone:
+			if err := json.Unmarshal(payload, &fin); err != nil {
+				t.Fatal(err)
+			}
+			return fin, hostScore, botScore
+		default:
+			t.Fatalf("unexpected message %s while draining", typ)
+		}
+	}
+}
+
 func TestLoseWhenHandsExhausted(t *testing.T) {
-	r, p := newTestRoom(t, 1000000000, 8, true)
+	// Unreachable target forces HANDS_EXHAUSTED; the outcome is now a host-vs-bot score
+	// comparison (the win rule genuinely changed from the old forfeit rule). The host plays
+	// a fixed, deliberately weak selection every turn so the heuristic bot outscores it and
+	// wins. We assert the winner follows the comparison rather than hard-coding WIN/LOSE.
+	r, p := newTestRoom(t, 1000000000, 1, true)
 	c := connect(t, r, host)
 	expect[StatePayload](t, c, MsgRoomState)
 	for i := 0; i < InitialHands; i++ {
-		r.Play(c, []int{0, 1, 2, 3, 4})
-		expect[HandScoredPayload](t, c, MsgHandScored)
-		expect[StatePayload](t, c, MsgRoomState)
+		r.Play(c, []int{0}) // single lowest-index card: the weakest possible host play
 	}
-	fin := expect[MatchFinishedPayload](t, c, MsgMatchDone)
-	if fin.Result != "LOSE" || fin.TargetReached || fin.Reason != "HANDS_EXHAUSTED" || fin.WinnerID != BotPlayerID || fin.HandsPlayed != InitialHands {
+	fin, hostScore, botScore := drainUntilFinished(t, c)
+	if fin.TargetReached || fin.Reason != "HANDS_EXHAUSTED" || fin.HandsPlayed != InitialHands {
 		t.Fatalf("finished %+v", fin)
+	}
+	// The heuristic bot is expected to outscore the fixed weak host selection with this seed.
+	if hostScore > botScore {
+		t.Fatalf("expected the bot to outscore the host, host=%d bot=%d", hostScore, botScore)
+	}
+	if fin.Result != "LOSE" || fin.WinnerID != BotPlayerID {
+		t.Fatalf("host %d <= bot %d must LOSE to bot, got %+v", hostScore, botScore, fin)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if _, finished := p.snapshot(); len(finished) != 1 || finished[0] {
+		t.Fatalf("expected one LOSE persisted, got %v", finished)
+	}
+}
+
+func TestInitialBotState(t *testing.T) {
+	r, _ := newTestRoom(t, 300, 42, true)
+	st := r.Snapshot()
+	if st.BotScore != 0 || st.BotHandNumber != 0 {
+		t.Fatalf("bot score/handNumber should start at 0: %+v", st)
+	}
+	if st.BotHandsLeft != InitialHands || st.BotDiscardsLeft != InitialDiscards {
+		t.Fatalf("bot hands/discards left %d/%d, want %d/%d", st.BotHandsLeft, st.BotDiscardsLeft, InitialHands, InitialDiscards)
+	}
+	r.mu.RLock()
+	botHand := append([]models.Card(nil), r.botHand...)
+	r.mu.RUnlock()
+	if len(botHand) != HandSize {
+		t.Fatalf("bot hand size %d, want %d", len(botHand), HandSize)
+	}
+}
+
+func TestNoBotStateIsZero(t *testing.T) {
+	r, _ := newTestRoom(t, 300, 42, false)
+	st := r.Snapshot()
+	if st.BotScore != 0 || st.BotHandsLeft != 0 || st.BotDiscardsLeft != 0 || st.BotHandNumber != 0 {
+		t.Fatalf("bot state must be zero without a bot: %+v", st)
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.botDealer != nil || r.botHand != nil {
+		t.Fatalf("bot dealer/hand must be nil without a bot")
+	}
+}
+
+func TestBotSeedDoesNotAffectHostDeal(t *testing.T) {
+	// The bot dealer derives from seed^0xB07; the host's own hand/deck must be identical
+	// whether or not a bot is present (same seed).
+	withBot, _ := newTestRoom(t, 300, 123, true)
+	noBot, _ := newTestRoom(t, 300, 123, false)
+	a, b := withBot.Snapshot(), noBot.Snapshot()
+	if a.DeckCount != b.DeckCount {
+		t.Fatalf("host deck count differs: %d vs %d", a.DeckCount, b.DeckCount)
+	}
+	for i := range a.CardsInHand {
+		if a.CardsInHand[i] != b.CardsInHand[i] {
+			t.Fatalf("host hand differs at %d: %v vs %v", i, a.CardsInHand[i], b.CardsInHand[i])
+		}
+	}
+}
+
+func TestBotActsOnceAfterHostPlay(t *testing.T) {
+	// Unreachable target so no match-end interferes. After one host PLAY the bot takes
+	// exactly one action: either a PLAY (host HAND_SCORED, host STATE, bot HAND_SCORED, bot
+	// STATE) or a DISCARD (host HAND_SCORED, host STATE, bot STATE).
+	r, _ := newTestRoom(t, 1000000000, 55, true)
+	c := connect(t, r, host)
+	expect[StatePayload](t, c, MsgRoomState)
+
+	r.Play(c, []int{0, 1, 2})
+	hostScored := expect[HandScoredPayload](t, c, MsgHandScored)
+	if hostScored.PlayerID != host.ID {
+		t.Fatalf("first HAND_SCORED must be the host, got %s", hostScored.PlayerID)
+	}
+	expect[StatePayload](t, c, MsgRoomState) // host STATE
+
+	typ, payload := next(t, c)
+	if typ == MsgHandScored {
+		var botScored HandScoredPayload
+		if err := json.Unmarshal(payload, &botScored); err != nil {
+			t.Fatal(err)
+		}
+		if botScored.PlayerID != BotPlayerID || botScored.HandNumber != 1 {
+			t.Fatalf("bot HAND_SCORED %+v", botScored)
+		}
+		if botScored.AccumulatedScore <= 0 {
+			t.Fatalf("bot accumulated score should be > 0 on a play: %+v", botScored)
+		}
+		st := expect[StatePayload](t, c, MsgRoomState)
+		if st.BotHandsLeft != InitialHands-1 || st.BotHandNumber != 1 || st.BotScore != botScored.AccumulatedScore {
+			t.Fatalf("bot state after play %+v", st)
+		}
+	} else if typ == MsgRoomState {
+		var st StatePayload
+		if err := json.Unmarshal(payload, &st); err != nil {
+			t.Fatal(err)
+		}
+		// A discard: no bot hand consumed, one discard spent, no bot HAND_SCORED.
+		if st.BotHandsLeft != InitialHands || st.BotDiscardsLeft != InitialDiscards-1 || st.BotScore != 0 {
+			t.Fatalf("bot discard state %+v", st)
+		}
+	} else {
+		t.Fatalf("unexpected message after host turn: %s", typ)
+	}
+
+	// Exactly one bot action: nothing else is queued right now.
+	select {
+	case extra := <-c.Send:
+		t.Fatalf("bot acted more than once; extra frame: %s", extra)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestBotDoesNotActAfterHostDiscard(t *testing.T) {
+	r, _ := newTestRoom(t, 1000000000, 55, true)
+	c := connect(t, r, host)
+	expect[StatePayload](t, c, MsgRoomState)
+
+	r.Discard(c, []int{0, 1})
+	st := expect[StatePayload](t, c, MsgRoomState)
+	// Host discard: host discard spent, bot untouched.
+	if st.DiscardsLeft != InitialDiscards-1 {
+		t.Fatalf("host discards left %d", st.DiscardsLeft)
+	}
+	if st.BotHandsLeft != InitialHands || st.BotDiscardsLeft != InitialDiscards || st.BotScore != 0 || st.BotHandNumber != 0 {
+		t.Fatalf("bot must not act after a host discard: %+v", st)
+	}
+	// No further frames: the bot stayed put.
+	select {
+	case extra := <-c.Send:
+		t.Fatalf("bot acted after a host discard; extra frame: %s", extra)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestFinishRuleHostTargetWin(t *testing.T) {
+	r, _ := newTestRoom(t, 100, 7, true)
+	r.mu.Lock()
+	r.score = 150
+	r.botScore = 999
+	fin := r.finishAfterHostPlayLocked()
+	r.mu.Unlock()
+	if fin == nil || fin.Result != models.ResultWin || fin.WinnerID != host.ID || fin.Reason != "TARGET_SCORE_REACHED" {
+		t.Fatalf("host at target must WIN regardless of bot score: %+v", fin)
+	}
+}
+
+func TestFinishRuleHandsExhaustedHostAhead(t *testing.T) {
+	r, _ := newTestRoom(t, 1000000000, 7, true)
+	r.mu.Lock()
+	r.handsLeft = 0
+	r.score = 500
+	r.botScore = 400
+	fin := r.finishAfterHostPlayLocked()
+	r.mu.Unlock()
+	if fin == nil || fin.Result != models.ResultWin || fin.WinnerID != host.ID || fin.Reason != "HANDS_EXHAUSTED" {
+		t.Fatalf("host ahead on exhaustion must WIN: %+v", fin)
+	}
+}
+
+func TestFinishRuleHandsExhaustedBotAheadOrTie(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		host, bot  int
+	}{
+		{"bot ahead", 400, 500},
+		{"tie", 400, 400},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, _ := newTestRoom(t, 1000000000, 7, true)
+			r.mu.Lock()
+			r.handsLeft = 0
+			r.score = tc.host
+			r.botScore = tc.bot
+			fin := r.finishAfterHostPlayLocked()
+			r.mu.Unlock()
+			if fin == nil || fin.Result != models.ResultLose || fin.WinnerID != BotPlayerID || fin.Reason != "HANDS_EXHAUSTED" {
+				t.Fatalf("%s must LOSE to bot: %+v", tc.name, fin)
+			}
+		})
+	}
+}
+
+func TestFinishRuleNoBotHandsExhaustedLegacyLose(t *testing.T) {
+	r, _ := newTestRoom(t, 1000000000, 7, false)
+	r.mu.Lock()
+	r.handsLeft = 0
+	r.score = 500
+	fin := r.finishAfterHostPlayLocked()
+	r.mu.Unlock()
+	if fin == nil || fin.Result != models.ResultLose || fin.WinnerID != "" || fin.Reason != "HANDS_EXHAUSTED" {
+		t.Fatalf("no-bot exhaustion must LOSE with empty winner (legacy): %+v", fin)
+	}
+}
+
+func TestBotReachesTargetFirstLose(t *testing.T) {
+	// A low target the bot reaches on its turn after the host's first (non-winning) play.
+	// Chosen seed/target so the host's single-card play stays below target while the bot's
+	// best play clears it, yielding LOSE with the bot as winner.
+	const target = 1000
+	r, p := newTestRoom(t, target, 23, true)
+	c := connect(t, r, host)
+	expect[StatePayload](t, c, MsgRoomState)
+
+	r.Play(c, []int{0}) // weak single-card play: host stays below target (~500 for this seed)
+	fin, hostScore, botScore := drainUntilFinished(t, c)
+	if hostScore >= target {
+		t.Fatalf("host reached target on its own (%d); seed assumption invalid", hostScore)
+	}
+	if botScore < target {
+		t.Fatalf("expected the bot to reach the target, bot=%d", botScore)
+	}
+	if fin.Result != models.ResultLose || fin.WinnerID != BotPlayerID || fin.Reason != "TARGET_SCORE_REACHED" {
+		t.Fatalf("bot reaching target first must LOSE to bot: %+v", fin)
 	}
 	time.Sleep(50 * time.Millisecond)
 	if _, finished := p.snapshot(); len(finished) != 1 || finished[0] {

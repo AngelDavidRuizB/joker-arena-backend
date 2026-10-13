@@ -131,6 +131,70 @@ func TestWebSocketFullMatchFlow(t *testing.T) {
 	}
 }
 
+func TestWebSocketBotPlaysAfterHostPlay(t *testing.T) {
+	f := newWSFixture(t)
+	// High target so neither side finishes; the room seed is random, so the bot may DISCARD
+	// (max 3 times) before it PLAYs. We issue host PLAYs until we observe the bot's
+	// HAND_SCORED, asserting the per-round frame order every round.
+	playerID, code := f.createRoom(t, "BotPlays", 100000, true)
+	conn := dial(t, f.wsBase+"/ws/"+code, nil)
+	sendMsg(t, conn, "JOIN_ROOM", map[string]string{"room_code": code, "player_id": playerID})
+
+	var st room.StatePayload
+	_ = json.Unmarshal(expectType(t, conn, "ROOM_STATE_UPDATE"), &st)
+	if !st.WithBot || st.BotHandsLeft != room.InitialHands || st.BotDiscardsLeft != room.InitialDiscards {
+		t.Fatalf("initial bot state %+v", st)
+	}
+
+	botPlayed := false
+	for round := 0; round < room.InitialDiscards+2 && !botPlayed; round++ {
+		sendMsg(t, conn, "PLAY_HAND", map[string]any{"card_indices": []int{0}})
+
+		// Round order: host HAND_SCORED, host STATE, then bot HAND_SCORED+STATE (PLAY) or
+		// just STATE (DISCARD).
+		var hostScored room.HandScoredPayload
+		_ = json.Unmarshal(expectType(t, conn, "HAND_SCORED"), &hostScored)
+		if hostScored.PlayerID != playerID {
+			t.Fatalf("first HAND_SCORED must be the host, got %q", hostScored.PlayerID)
+		}
+		var hostState room.StatePayload
+		_ = json.Unmarshal(expectType(t, conn, "ROOM_STATE_UPDATE"), &hostState)
+
+		// Peek the next frame: HAND_SCORED(bot) means the bot played; STATE means it discarded.
+		env := readEnv(t, conn)
+		switch env.Type {
+		case "HAND_SCORED":
+			var botScored room.HandScoredPayload
+			_ = json.Unmarshal(env.Payload, &botScored)
+			if botScored.PlayerID != room.BotPlayerID {
+				t.Fatalf("bot HAND_SCORED player_id = %q, want %q", botScored.PlayerID, room.BotPlayerID)
+			}
+			if botScored.AccumulatedScore <= 0 || botScored.HandNumber < 1 {
+				t.Fatalf("bot HAND_SCORED payload %+v", botScored)
+			}
+			var botState room.StatePayload
+			_ = json.Unmarshal(expectType(t, conn, "ROOM_STATE_UPDATE"), &botState)
+			if botState.BotScore != botScored.AccumulatedScore || botState.BotHandNumber != botScored.HandNumber {
+				t.Fatalf("bot STATE does not match bot HAND_SCORED: state %+v scored %+v", botState, botScored)
+			}
+			botPlayed = true
+		case "ROOM_STATE_UPDATE":
+			var botState room.StatePayload
+			_ = json.Unmarshal(env.Payload, &botState)
+			// A bot discard: discards decremented, no hand consumed, no bot HAND_SCORED.
+			if botState.BotDiscardsLeft >= room.InitialDiscards {
+				t.Fatalf("expected bot discards to decrease on a discard round, got %+v", botState)
+			}
+		default:
+			t.Fatalf("unexpected frame after host turn: %s", env.Type)
+		}
+	}
+
+	if !botPlayed {
+		t.Fatal("the bot never produced a HAND_SCORED within the expected number of rounds")
+	}
+}
+
 func TestWebSocketAutoJoinWithQueryParam(t *testing.T) {
 	f := newWSFixture(t)
 	playerID, code := f.createRoom(t, "QueryJoin", 300, false)

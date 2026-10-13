@@ -86,6 +86,12 @@ type StatePayload struct {
 
 	HandsTotal    int `json:"hands_total"`
 	DiscardsTotal int `json:"discards_total"`
+
+	// Bot opponent state. Zero when the match has no bot.
+	BotScore        int `json:"bot_score"`
+	BotHandsLeft    int `json:"bot_hands_left"`
+	BotHandNumber   int `json:"bot_hand_number"`
+	BotDiscardsLeft int `json:"bot_discards_left"`
 }
 
 // HandScoredPayload is the payload of HAND_SCORED: the full algebraic audit of a played hand.
