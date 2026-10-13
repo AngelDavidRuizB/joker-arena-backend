@@ -19,14 +19,14 @@ Abrir de antemano: `http://localhost:3000`, `http://localhost:8000/docs` y una t
 | Paso | Qué hacer | Qué señalar |
 |---|---|---|
 | 1 | Abrir `localhost:3000`, escribir alias `JugadorDemo`, **Registrarme y jugar**. | F1: el alias queda en PostgreSQL (se verifica en el paso 8). Validación inmediata de alias. |
-| 2 | En el lobby elegir meta **1200**, dejar *Jugar contra Bot*, **Crear sala (con Bot)**. | F2: código `JKR-XXXX` único. Alternativa: *Unirme* con un código inexistente muestra error real (sin datos falsos). |
-| 3 | En el tapete aparecen 8 cartas animadas. | F3: llegaron por WebSocket (`ROOM_STATE_UPDATE`), baraja de 52 barajada con semilla en el servidor. Indicador *En línea*. |
+| 2 | En el lobby elegir meta **22 000** (Clásica; una partida completa dura ~6–8 min), dejar *Jugar contra Bot*, **Crear sala (con Bot)**. | F2: código `JKR-XXXX` único. Alternativa: *Unirme* con un código inexistente muestra error real (sin datos falsos). |
+| 3 | En el tapete aparecen 8 cartas animadas. | F3: llegaron por WebSocket (`ROOM_STATE_UPDATE`), baraja de 52 barajada con semilla en el servidor; al agotarse el mazo se recicla (rebaraja determinista de las cartas jugadas). Indicador *En línea*. |
 | 4 | Seleccionar 6 cartas: solo permite 5. Probar teclas `1–8`. | Selección reactiva, accesible (`aria-pressed`). |
 | 5 | **Jugar mano**. | F4/F5: cascada Fichas × Mult. Banner (+30 por descarte), Joker Clásico (+4 Mult), The Duo (×2 con pareja). El panel *Auditoría en vivo* muestra la fórmula exacta. |
 | 6 | **Descartar** 2 cartas. | Las cartas se reponen desde el mazo; baja el contador de descartes. |
 | 7 | Recargar la página (F5). | La sala y la mano se conservan (estado en el servidor, reconexión automática). |
 | 8 | Terminal: ver el comando de §3. | Persistencia relacional: jugador, sala y partida (WAITING → IN_PROGRESS → WIN/LOSE). |
-| 9 | Jugar hasta alcanzar/perder la meta. | `MATCH_FINISHED`: pantalla de victoria (confeti) o derrota; resultado guardado en `matches.result`. |
+| 9 | Jugar hasta alcanzar/perder la meta (partida completa ~6–8 min). Para una **demo corta** crear la sala por API con meta baja, p. ej. `curl -X POST localhost:8080/api/rooms -d '{"player_id":"<id>","target_score":1}'` (ejemplo de formato; el `player_id` debe ser el del alias registrado en la UI, que sale de `POST /api/players` o de `localStorage['jokerarena.session']`, para que esa sesión sea la anfitriona; luego abrir `/room/<código>`). | `MATCH_FINISHED`: pantalla de victoria (confeti) o derrota; resultado guardado en `matches.result`. |
 
 ## 3. Comandos de verificación
 ```bash

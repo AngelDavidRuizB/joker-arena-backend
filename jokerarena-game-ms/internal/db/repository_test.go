@@ -167,8 +167,14 @@ func TestDescriptionRoundTrip(t *testing.T) {
 		t.Fatalf("got %d %v", target, bot)
 	}
 	target, bot = decodeRoomDescription("legacy text")
-	if target != 300 || bot {
+	if target != models.DefaultTargetScore || bot {
 		t.Fatalf("defaults expected, got %d %v", target, bot)
+	}
+	if target, bot = decodeRoomDescription("target_score=300;with_bot=true"); target != 300 || !bot {
+		t.Fatalf("explicit 300 must be kept, got %d %v", target, bot)
+	}
+	if target, _ = decodeRoomDescription("with_bot=true"); target != models.DefaultTargetScore {
+		t.Fatalf("missing target must default to %d, got %d", models.DefaultTargetScore, target)
 	}
 }
 

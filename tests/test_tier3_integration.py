@@ -6,6 +6,7 @@ import json
 import unittest
 import uuid
 
+from tests.config import DEFAULT_TARGET_SCORE, INITIAL_HANDS
 from tests.config import (
     GAME_ENGINE_PORT,
     TARGET_HOST,
@@ -97,7 +98,7 @@ class TestTier3Integration(unittest.TestCase):
         status, update_payload = self.mock_server.simulate_play_hand(code, selected_indices)
         self.assertEqual(status, 200)
         new_state = update_payload["payload"]
-        self.assertEqual(new_state["hands_left"], 3)  # Decremented from 4 to 3
+        self.assertEqual(new_state["hands_left"], INITIAL_HANDS - 1)  # Decremented from 20 to 19
         self.assertGreater(new_state["current_score"], 0)  # Score updated
 
     def test_i03_dual_client_room_coexistence(self):

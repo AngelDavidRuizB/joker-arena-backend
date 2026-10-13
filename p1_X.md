@@ -11,12 +11,14 @@
 
 ## 1. Identificación del Equipo
 
-* **Nombre del equipo:** `Grupo X` *(Asignar identificador del grupo: ej. 1a, 1b, 2a, 2b)*
+* **Nombre del equipo:** `Grupo 2B` 
 * **Integrantes (Nombres completos y códigos):**
-  * `[Nombre Completo Integrante 1] — Código: [Código UNAL 1]`
-  * `[Nombre Completo Integrante 2] — Código: [Código UNAL 2]`
-  * `[Nombre Completo Integrante 3] — Código: [Código UNAL 3]`
-  * `[Nombre Completo Integrante 4] — Código: [Código UNAL 4]`
+  * `Angel David Ruiz Barbosa`
+  * `Nicole Celemin Triana`
+  * `Santiago Zamora Garzon`
+  * `Esteban Andrés Gómez Álvarez`
+  * `Jose Arturo Herrera Rivera`
+  * `Juan David Suárez Coronado`
 
 ---
 
@@ -50,7 +52,7 @@ El Prototipo 1 abarca un flujo funcional completo de extremo a extremo (*End-to-
 | **F4** | **Core Game Loop**: jugar o descartar de 1 a 5 cartas. Reconocimiento determinista de 9 manos de póker y reposición de baraja. | Frontend ⇄ Game Engine | C2 (WebSocket) |
 | **F5** | **Pipeline de puntuación y Jokers**: cálculo algebraico con 3 Jokers canónicos (Banner, Joker Clásico, The Duo) bajo la fórmula $\text{Chips} \times \text{Mult}$. | Game Engine | Lógica interna autoritativa |
 | **F6** | **Pipeline de telemetría y auditoría en vivo**: despacho asíncrono gRPC al servicio analítico, persistencia en MongoDB y emisión SSE en vivo. | Game Engine → Telemetry Service → MongoDB → Frontend | C5 (gRPC HTTP/2), C7 (BSON), C4 (SSE) |
-| **F7** | **Cierre de partida y métricas**: evaluación de victoria/derrota (meta de 300 puntos o 4 manos agotadas), persistencia final y consulta analítica. | Game Engine → PostgreSQL · Frontend → Telemetry → MongoDB | C6 (SQL), C3 (REST) |
+| **F7** | **Cierre de partida y métricas**: evaluación de victoria/derrota (meta de 22 000 puntos o 20 manos agotadas), persistencia final y consulta analítica. | Game Engine → PostgreSQL · Frontend → Telemetry → MongoDB | C6 (SQL), C3 (REST) |
 
 *Fuera de alcance en el Prototipo 1:* Tienda de compra/venta entre rondas, barajas especiales (decks cosméticos), múltiples blinds sucesivas (*Antes*), autenticación OAuth/contraseñas y emparejamiento global automático (matchmaking por ELO).
 
@@ -98,44 +100,7 @@ $$\text{Puntaje} = \Big(\text{Chips}_{\text{mano}} + \sum \text{Chips}_{\text{ca
 
 #### 3.1.1. Vista C&C
 
-```mermaid
-flowchart TB
-    U(["Jugador<br/>(Navegador Web)"])
-
-    subgraph PRES["CAPA DE PRESENTACIÓN"]
-        FE["«component» jokerarena-fe<br/>TypeScript · React · Vite · Nginx<br/><i>Lobby · Tapete · Telemetría en Vivo · :3000</i>"]
-    end
-
-    subgraph LOG["CAPA DE LÓGICA DE NEGOCIO"]
-        GE["«component» jokerarena-game-ms<br/>Go (Golang)<br/><i>Session Manager · Baraja · Evaluador · Bot</i><br/><i>:8080 (HTTP REST + WebSocket)</i>"]
-        TE["«component» jokerarena-telemetry-ms<br/>Python · FastAPI<br/><i>Ingesta · Streaming SSE · Agregaciones</i><br/><i>:8000 (REST + SSE) · :50051 (gRPC)</i>"]
-    end
-
-    subgraph DAT["CAPA DE DATOS (PERSISTENCIA POLÍGLOTA)"]
-        PG[("«component» jokerarena-game-db<br/>PostgreSQL 16 · appdb<br/><i>players · rooms · matches</i><br/><i>:5432</i>")]
-        MG[("«component» jokerarena-telemetry-db<br/>MongoDB 7 · casino_games<br/><i>hands (documentos inmutables)</i><br/><i>:27017</i>")]
-    end
-
-    U -->|"HTTP :3000"| FE
-
-    FE -->|"C1 · HTTP REST (JSON)"| GE
-    FE <-->|"C2 · WebSocket (RFC 6455)"| GE
-    FE -->|"C3 · HTTP REST (JSON)"| TE
-    TE -->|"C4 · SSE (text/event-stream)"| FE
-    GE -->|"C5 · gRPC (HTTP/2 + Protobuf)<br/>RecordHand · asíncrono no bloqueante"| TE
-    GE -->|"C6 · PostgreSQL Wire Protocol (TCP 5432)"| PG
-    TE -->|"C7 · MongoDB Wire Protocol (TCP 27017)"| MG
-
-    classDef pres fill:#eff6ff,stroke:#1e40af,stroke-width:2px,color:#0f172a;
-    classDef logic fill:#f5f3ff,stroke:#6d28d9,stroke-width:2px,color:#0f172a;
-    classDef data fill:#f0fdf4,stroke:#15803d,stroke-width:2px,color:#0f172a;
-    classDef actor fill:#f1f5f9,stroke:#334155,stroke-width:1.5px,color:#0f172a;
-
-    class FE pres;
-    class GE,TE logic;
-    class PG,MG data;
-    class U actor;
-```
+![Diagrama de Componentes y Conectores (C&C) de JokerArena](./diagrama_cc_p1.png)
 
 *Figura 2: Diagrama de Componentes y Conectores (C&C) de JokerArena. Ilustra los microservicios, persistencia políglota y los 7 conectores tipificados.*
 
@@ -169,7 +134,7 @@ flowchart TB
 |---|---|---|---|---|
 | **C1** | `fe` $\rightarrow$ `game-ms` | **HTTP/1.1 REST (JSON)** | Client $\rightarrow$ Server | Operaciones síncronas de gestión de sesión: registro de jugadores (`POST /api/players`), creación de salas (`POST /api/rooms`) y consulta de estado (`GET /api/rooms/{code}`). |
 | **C2** | `fe` $\leftrightarrow$ `game-ms` | **WebSocket (RFC 6455)** | Peer $\leftrightarrow$ Peer | Canal dúplex persistente de baja latencia (<50 ms): envío de jugadas/descartes (`PLAY_HAND`, `DISCARD_CARDS`) y recepción de eventos de sala (`ROOM_STATE_UPDATE`, `MATCH_FINISHED`). |
-| **C3** | `fe` $\rightarrow$ `telemetry-ms` | **HTTP/1.1 REST (JSON)** | Client $\rightarrow$ Server | Consultas síncronas de cierre de partida: historial completo de manos (`GET /api/matches/{id}/hands`) y estadísticas consolidadas (`GET /api/matches/{id}/stats`). |
+| **C3** | `fe` $\rightarrow$ `telemetry-ms` | **HTTP/1.1 REST (JSON)** | Client $\rightarrow$ Server | Consultas síncronas de cierre de partida y analítica: historial de manos (`GET /telemetry/hands?match_id={id}`) y eventos consolidados (`GET /telemetry/matches/{id}`). |
 | **C4** | `telemetry-ms` $\rightarrow$ `fe` | **Server-Sent Events (SSE)** | Publisher $\rightarrow$ Subscriber | Streaming continuo unidireccional de telemetría (`GET /api/matches/{id}/stream`). Envía eventos `hand_scored` en vivo con el desglose algebraico exacto. |
 | **C5** | `game-ms` $\rightarrow$ `telemetry-ms` | **gRPC (HTTP/2 + Protobuf)** | Client $\rightarrow$ Server | Despacho binario de cada jugada en goroutine asíncrona con *timeout* estricto de 200 ms. Si la telemetría se degrada o cae, la partida nunca se interrumpe (aislamiento de fallos). |
 | **C6** | `game-ms` $\rightarrow$ `game-db` | **PostgreSQL Wire Protocol** | Client $\rightarrow$ Server | Conexión persistente mediante pool binario de alto rendimiento (`pgxpool`) sobre TCP puerto 5432. |
@@ -190,11 +155,11 @@ flowchart TB
 * **`POST /api/players`** — Registrar alias de jugador (el alias se guarda en `players.username`; el id es el `id_player` SERIAL de PostgreSQL, expuesto como cadena)
   * *Request Body:* `{"alias": "JokerPro99"}`
   * *Response (201 Created, o 200 OK si el alias ya existía):* `{"id": "12", "alias": "JokerPro99", "created_at": "2026-10-12T19:00:00Z"}`
-* **`POST /api/rooms`** — Crear sala de juego (`target_score` entre 1 y 100000, por defecto 300; `with_bot` por defecto `true`)
-  * *Request Body:* `{"player_id": "12", "target_score": 300, "with_bot": true}`
-  * *Response (201 Created):* `{"room_code": "JKR-A7K2", "match_id": "31", "target_score": 300, "status": "WAITING", "with_bot": true, "players": ["12", "bot"]}`
+* **`POST /api/rooms`** — Crear sala de juego (`target_score` entre 1 y 100000, por defecto 22000; `with_bot` por defecto `true`)
+  * *Request Body:* `{"player_id": "12", "target_score": 22000, "with_bot": true}`
+  * *Response (201 Created):* `{"room_code": "JKR-A7K2", "match_id": "31", "target_score": 22000, "status": "WAITING", "with_bot": true, "players": ["12", "bot"]}`
 * **`GET /api/rooms/{code}`** — Consultar estado de sala (búsqueda insensible a mayúsculas; 404 si no existe)
-  * *Response (200 OK):* `{"room_code": "JKR-A7K2", "status": "IN_PROGRESS", "player_count": 2, "target_score": 300, "hands_left": 3, "discards_left": 3, "current_score": 520, "deck_count": 40, "cards_in_hand": [...]}`
+  * *Response (200 OK):* `{"room_code": "JKR-A7K2", "status": "IN_PROGRESS", "player_count": 2, "target_score": 22000, "hands_left": 19, "discards_left": 3, "current_score": 520, "deck_count": 40, "cards_in_hand": [...]}`
 * **`GET /health`** — `200 {"status":"ok","postgres":"connected"}`; si PostgreSQL no responde devuelve `503` (`"status":"degraded"`), sin simular que persiste.
 
 #### 3.2.2. Conector C2: Protocolo WebSocket (Bidireccional RFC 6455)
@@ -218,8 +183,10 @@ Estructura de sobre estándar (*Envelope*):
        "type": "ROOM_STATE_UPDATE",
        "payload": {
          "room_code": "JKR-A7K2",
-         "target_score": 300,
-         "hands_left": 3,
+         "target_score": 22000,
+         "hands_left": 19,
+         "hands_total": 20,
+         "discards_total": 3,
          "discards_left": 2,
          "current_score": 1248,
          "cards_in_hand": [
@@ -261,15 +228,15 @@ Estructura de sobre estándar (*Envelope*):
        "payload": {
          "winner_id": "12",
          "result": "WIN",
-         "final_score": 1540,
-         "target_score": 300,
+         "final_score": 22340,
+         "target_score": 22000,
          "target_reached": true,
          "reason": "TARGET_SCORE_REACHED",
          "hands_played": 2
        }
      }
      ```
-     `reason` es `TARGET_SCORE_REACHED` (≥ meta) o `HANDS_EXHAUSTED` (4 manos sin alcanzar la meta).
+     `reason` es `TARGET_SCORE_REACHED` (≥ meta) o `HANDS_EXHAUSTED` (20 manos sin alcanzar la meta).
 
 #### 3.2.3. Conector C5: Contrato Protocol Buffers (`proto/telemetry.proto`)
 
@@ -394,7 +361,7 @@ CREATE TABLE IF NOT EXISTS matches (
 | Alias del jugador (F1) | `players.username`; `email` = `<alias>@guest.jokerarena.local` y `password` = centinela no autenticable (`!guest-no-login`). Unicidad del alias garantizada con `pg_advisory_xact_lock`. |
 | Identificadores | `id_player` / `id_match` SERIAL; la API los expone como cadena (`"12"`). |
 | Código de sala `JKR-XXXX` (F2) | `rooms.name` (único por transacción con *advisory lock*). |
-| Meta de puntos y modo Bot | `rooms.description` = `target_score=300;with_bot=true`; `rooms.capacity` = 1 (solo) o 2 (con Bot). |
+| Meta de puntos y modo Bot | `rooms.description` = `target_score=22000;with_bot=true`; `rooms.capacity` = 1 (solo) o 2 (con Bot). |
 | Participantes | una fila de `matches` por participante (anfitrión y, si aplica, el jugador `Bot-JokerBot`). `match_id` de la API = `id_match` de la fila del anfitrión. |
 | Estado de la partida | `matches.result`: `WAITING` → `IN_PROGRESS` (primera jugada) → `WIN` / `LOSE`; `ended_at` al cerrar. El estado `FINISHED` de la API se deriva de `WIN`/`LOSE`. |
 | Catálogo de Jokers | Vive en el código del Game Engine (`internal/poker`), no en la BD: Banner → Joker Clásico → The Duo. |
@@ -449,25 +416,9 @@ Colección: `hands` (Base de datos: `casino_games`, autenticación `admin` / `au
 
 Para mitigar riesgos y asegurar la validez arquitectónica desde el primer día, la construcción del prototipo no se realiza por capas horizontales aisladas, sino mediante **Slices Verticales Secuenciales**. Cada slice implementa una funcionalidad de principio a fin, atravesando la presentación, la lógica y la persistencia.
 
-```mermaid
-flowchart TD
-    V1["<b>Slice V-1 (20%)</b><br/>Infraestructura Base, Registro & Salas<br/><i>Frontend + REST (C1) + Go + PostgreSQL (C6)</i>"]
-    V2["<b>Slice V-2 (20% -> HITO 40%)</b><br/>Sincronización en Vivo & Reparto de Baraja<br/><i>Frontend (Tapete) + WebSockets (C2) + Go (Goroutines)</i>"]
-    V3["<b>Slice V-3 (25%)</b><br/>Core Game Loop & Cascada Balatro<br/><i>Evaluador Póker + 3 Jokers + Chips × Mult</i>"]
-    V4["<b>Slice V-4 (20%)</b><br/>Telemetría Políglota & Streaming<br/><i>gRPC (C5) + FastAPI + MongoDB (C7) + SSE (C4)</i>"]
-    V5["<b>Slice V-5 (15% -> HITO 100%)</b><br/>Simulador Bot & Cierre de Partida<br/><i>Bot Heurístico + Pantalla Fin + Stats REST (C3)</i>"]
+![Estrategia de Implementación por Slices Verticales](./diagrama_slices_p1.png)
 
-    V1 --> V2
-    V2 --> V3
-    V3 --> V4
-    V4 --> V5
-
-    style V1 fill:#dbeafe,stroke:#1d4ed8,stroke-width:2px
-    style V2 fill:#dbeafe,stroke:#1d4ed8,stroke-width:3px
-    style V3 fill:#f3e8ff,stroke:#7e22ce,stroke-width:1px
-    style V4 fill:#f3e8ff,stroke:#7e22ce,stroke-width:1px
-    style V5 fill:#f3e8ff,stroke:#7e22ce,stroke-width:1px
-```
+*Figura 3: Estrategia de Implementación por Slices Verticales y progreso acumulado hacia los hitos del proyecto.*
 
 ### 4.1. Descomposición de Funcionalidades en Slices Verticales
 
@@ -493,7 +444,7 @@ flowchart TD
 
 #### **Slice Vertical 5 (V-5): Bot Oponente, Finalización de Partida y Métricas Finales (100% Final)**
 * **Objetivo:** Conclusión completa del ciclo de vida y modo autónomo de demostración.
-* **Flujo:** El bot oponente realiza jugadas automáticas. Cuando un jugador alcanza 300 puntos o agota 4 manos, se emite `MATCH_FINISHED`. Go persiste al ganador en PostgreSQL (C6). La pantalla de resultados consulta las estadísticas agregadas en Python vía REST (C3) desde MongoDB.
+* **Flujo:** El bot oponente realiza jugadas automáticas. Cuando un jugador alcanza 22 000 puntos o agota 20 manos, se emite `MATCH_FINISHED`. Go persiste al ganador en PostgreSQL (C6). La pantalla de resultados consulta las estadísticas agregadas en Python vía REST (C3) desde MongoDB.
 * **Conectores ejercitados:** C6 (SQL), C2 (WebSocket), C3 (REST Telemetry).
 
 ---
@@ -506,7 +457,7 @@ El **Hito del 40%** solicitado por el usuario comprende la culminación integral
 1. **Entorno Docker Compose Unificado:**
    * Archivo `docker-compose.yml` que orquesta los 5 servicios (`jokerarena-fe`, `jokerarena-game-ms`, `jokerarena-telemetry-ms`, `jokerarena-game-db`, `jokerarena-telemetry-db`).
    * Red bridge común `jokerarena-net` y volúmenes de persistencia.
-   * `db/postgres/init.sql` ejecutándose automáticamente en el primer arranque de PostgreSQL con esquema y seed data.
+   * `db/postgres/create_db.sql` ejecutándose automáticamente en el primer arranque de PostgreSQL con esquema y seed data.
    * Endpoints de salud (`/health`) activos y verificables.
 2. **Frontend Web Operativo (`jokerarena-fe`):**
    * Vista de Bienvenida / Registro de alias.

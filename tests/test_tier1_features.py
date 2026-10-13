@@ -8,6 +8,7 @@ import uuid
 
 import requests
 
+from tests.config import DEFAULT_TARGET_SCORE, INITIAL_HANDS
 from tests.config import (
     FRONTEND_PORT,
     FRONTEND_URL,
@@ -525,20 +526,20 @@ class TestTier1Features(unittest.TestCase):
             _, data = self.mock_server.create_room(p_data["id"])
             self.assertIn(data["room_code"], self.mock_server.rooms)
 
-    def test_f08_04_room_target_score_default_300(self):
-        """F8.4: Match default target score is initialized to 300 points."""
+    def test_f08_04_room_target_score_default_22000(self):
+        """F8.4: Match default target score is initialized to 22000 points."""
         alias = f"ScoreHost_{uuid.uuid4().hex[:4]}"
         if self.is_game_engine_live:
             p_id = self.rest_client.register_player(alias).json()["id"]
             res = self.rest_client.create_room(p_id)
             room_code = res.json()["room_code"]
             q_res = self.rest_client.get_room(room_code)
-            self.assertEqual(q_res.json()["target_score"], 300)
+            self.assertEqual(q_res.json()["target_score"], DEFAULT_TARGET_SCORE)
         else:
             _, p_data = self.mock_server.register_player(alias)
             _, data = self.mock_server.create_room(p_data["id"])
             room = self.mock_server.rooms[data["room_code"]]
-            self.assertEqual(room["target_score"], 300)
+            self.assertEqual(room["target_score"], DEFAULT_TARGET_SCORE)
 
     def test_f08_05_room_creation_links_match_players(self):
         """F8.5: Creator and bot are associated in match_players."""
@@ -574,7 +575,7 @@ class TestTier1Features(unittest.TestCase):
             code, data = self.mock_server.get_room(r_data["room_code"])
             self.assertEqual(code, 200)
 
-        self.assertEqual(data["target_score"], 300)
+        self.assertEqual(data["target_score"], DEFAULT_TARGET_SCORE)
 
     def test_f09_02_room_query_status_field(self):
         """F9.2: Query returns status WAITING on freshly created room."""
@@ -677,8 +678,8 @@ class TestTier1Features(unittest.TestCase):
             "type": "ROOM_STATE_UPDATE",
             "payload": {
                 "room_code": "JKR-402",
-                "target_score": 300,
-                "hands_left": 4,
+                "target_score": DEFAULT_TARGET_SCORE,
+                "hands_left": INITIAL_HANDS,
                 "discards_left": 3,
                 "current_score": 0,
                 "deck_count": 44,
@@ -858,13 +859,13 @@ class TestTier1Features(unittest.TestCase):
         room = self.mock_server.rooms[r_data["room_code"]]
         self.assertEqual(set(room["active_jokers"]), SEED_JOKERS)
 
-    def test_f14_03_target_score_fixed_at_300(self):
-        """F14.3: Target score for Prototype 1 blind is 300 points."""
+    def test_f14_03_target_score_default_22000(self):
+        """F14.3: Target score for Prototype 1 blind defaults to 22000 points."""
         alias = f"Target_{uuid.uuid4().hex[:4]}"
         _, p_data = self.mock_server.register_player(alias)
         _, r_data = self.mock_server.create_room(p_data["id"])
         room = self.mock_server.rooms[r_data["room_code"]]
-        self.assertEqual(room["target_score"], 300)
+        self.assertEqual(room["target_score"], DEFAULT_TARGET_SCORE)
 
     def test_f14_04_score_progress_calculation(self):
         """F14.4: Progress calculation percentage clamps at 100%."""

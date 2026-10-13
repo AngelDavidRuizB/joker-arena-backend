@@ -96,7 +96,7 @@ func TestWebSocketFullMatchFlow(t *testing.T) {
 
 	var st room.StatePayload
 	_ = json.Unmarshal(expectType(t, conn, "ROOM_STATE_UPDATE"), &st)
-	if len(st.CardsInHand) != 8 || st.DeckCount != 44 || st.HandsLeft != 4 || st.TargetScore != 1 || st.RoomCode != code {
+	if len(st.CardsInHand) != 8 || st.DeckCount != 44 || st.HandsLeft != room.InitialHands || st.TargetScore != 1 || st.RoomCode != code {
 		t.Fatalf("unexpected initial state %+v", st)
 	}
 
@@ -108,7 +108,7 @@ func TestWebSocketFullMatchFlow(t *testing.T) {
 	}
 	var after room.StatePayload
 	_ = json.Unmarshal(expectType(t, conn, "ROOM_STATE_UPDATE"), &after)
-	if after.CurrentScore != scored.Score || after.HandsLeft != 3 || len(after.CardsInHand) != 8 {
+	if after.CurrentScore != scored.Score || after.HandsLeft != room.InitialHands-1 || len(after.CardsInHand) != 8 {
 		t.Fatalf("unexpected state %+v", after)
 	}
 	var fin room.MatchFinishedPayload

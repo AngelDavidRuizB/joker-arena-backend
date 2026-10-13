@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"jokerarena-game-ms/internal/models"
 )
 
 // The relational schema (rooms.description is free TEXT) has no dedicated columns for the
@@ -16,7 +18,7 @@ func encodeRoomDescription(targetScore int, withBot bool) string {
 
 // decodeRoomDescription parses rooms.description; unknown/missing values fall back to defaults.
 func decodeRoomDescription(desc string) (targetScore int, withBot bool) {
-	targetScore = 300
+	targetScore = models.DefaultTargetScore
 	for _, part := range strings.Split(desc, ";") {
 		kv := strings.SplitN(strings.TrimSpace(part), "=", 2)
 		if len(kv) != 2 {

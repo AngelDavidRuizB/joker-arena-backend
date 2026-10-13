@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 import websockets
 
+from tests.config import DEFAULT_TARGET_SCORE, INITIAL_HANDS
 from tests.config import (
     FRONTEND_PORT,
     FRONTEND_URL,
@@ -99,11 +100,11 @@ def validate_room_state_update(payload: dict) -> Tuple[bool, str]:
         if not valid:
             return False, f"Card at index {i} invalid: {msg}"
 
-    if payload["target_score"] != 300:
-        return False, f"target_score expected 300, got {payload['target_score']}"
+    if not isinstance(payload["target_score"], int) or payload["target_score"] <= 0:
+        return False, f"target_score must be a positive integer, got {payload['target_score']}"
 
-    if payload["hands_left"] < 0 or payload["hands_left"] > 4:
-        return False, f"hands_left out of range [0, 4]: {payload['hands_left']}"
+    if payload["hands_left"] < 0 or payload["hands_left"] > INITIAL_HANDS:
+        return False, f"hands_left out of range [0, {INITIAL_HANDS}]: {payload['hands_left']}"
 
     if payload["discards_left"] < 0 or payload["discards_left"] > 3:
         return False, f"discards_left out of range [0, 3]: {payload['discards_left']}"
@@ -139,7 +140,7 @@ class RESTClient:
     def register_player(self, alias: str) -> requests.Response:
         return self.post("/api/players", {"alias": alias})
 
-    def create_room(self, player_id: str, target_score: int = 300, with_bot: bool = True) -> requests.Response:
+    def create_room(self, player_id: str, target_score: int = DEFAULT_TARGET_SCORE, with_bot: bool = True) -> requests.Response:
         return self.post("/api/rooms", {
             "player_id": player_id,
             "target_score": target_score,
@@ -387,7 +388,7 @@ class MockE2EServer:
         self.alias_to_id[alias] = p_id
         return 201, record
 
-    def create_room(self, player_id: str, target_score: int = 300, with_bot: bool = True) -> Tuple[int, dict]:
+    def create_room(self, player_id: str, target_score: int = DEFAULT_TARGET_SCORE, with_bot: bool = True) -> Tuple[int, dict]:
         if player_id not in self.players:
             return 400, {"error": "Unknown player_id"}
 
@@ -400,7 +401,9 @@ class MockE2EServer:
             "target_score": target_score,
             "status": "WAITING",
             "with_bot": with_bot,
-            "hands_left": 4,
+            "hands_left": INITIAL_HANDS,
+            "hands_total": INITIAL_HANDS,
+            "discards_total": 3,
             "discards_left": 3,
             "current_score": 0,
             "deck_count": 44,
@@ -458,6 +461,8 @@ class MockE2EServer:
                 "current_score": room["current_score"],
                 "target_score": room["target_score"],
                 "hands_left": room["hands_left"],
+                "hands_total": INITIAL_HANDS,
+                "discards_total": 3,
                 "discards_left": room["discards_left"],
                 "deck_count": room["deck_count"],
                 "cards_in_hand": room["cards_in_hand"],

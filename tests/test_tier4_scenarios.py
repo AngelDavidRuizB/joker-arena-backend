@@ -7,6 +7,7 @@ import time
 import unittest
 import uuid
 
+from tests.config import DEFAULT_TARGET_SCORE, INITIAL_HANDS
 from tests.config import (
     FRONTEND_PORT,
     GAME_ENGINE_PORT,
@@ -102,7 +103,7 @@ class TestTier4Scenarios(unittest.TestCase):
             self.assertEqual(status, 200)
             updated_state = update_env["payload"]
         self.assertGreater(updated_state["current_score"], 0)
-        self.assertEqual(updated_state["hands_left"], 3)
+        self.assertEqual(updated_state["hands_left"], INITIAL_HANDS - 1)
         self.assertEqual(updated_state["target_score"], 300)
 
     def test_s02_multi_container_convergence(self):

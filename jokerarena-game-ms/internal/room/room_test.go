@@ -104,8 +104,11 @@ func TestJoinDealsEightCardsFromA52Deck(t *testing.T) {
 	if len(st.CardsInHand) != 8 || st.DeckCount != 44 {
 		t.Fatalf("hand=%d deck=%d, want 8 and 44", len(st.CardsInHand), st.DeckCount)
 	}
-	if st.HandsLeft != 4 || st.DiscardsLeft != 3 || st.CurrentScore != 0 || st.Status != models.StatusWaiting {
+	if st.HandsLeft != InitialHands || st.DiscardsLeft != 3 || st.CurrentScore != 0 || st.Status != models.StatusWaiting {
 		t.Fatalf("unexpected initial state %+v", st)
+	}
+	if st.HandsTotal != InitialHands || st.DiscardsTotal != InitialDiscards {
+		t.Fatalf("totals hands=%d discards=%d", st.HandsTotal, st.DiscardsTotal)
 	}
 	if len(st.ActiveJokers) != 3 || st.ActiveJokers[0] != "banner" {
 		t.Fatalf("jokers %v", st.ActiveJokers)
@@ -153,7 +156,7 @@ func TestPlayHandScoresAndRefills(t *testing.T) {
 		t.Fatalf("unexpected audit payload %+v", scored)
 	}
 	after := expect[StatePayload](t, c, MsgRoomState)
-	if after.CurrentScore != want.Score || after.HandsLeft != 3 || after.DiscardsLeft != 3 {
+	if after.CurrentScore != want.Score || after.HandsLeft != InitialHands-1 || after.DiscardsLeft != 3 {
 		t.Fatalf("state after play %+v", after)
 	}
 	if len(after.CardsInHand) != 8 || after.DeckCount != 41 || after.Status != models.StatusInProgress {
@@ -179,7 +182,7 @@ func TestDiscardRefillsWithoutScoring(t *testing.T) {
 
 	r.Discard(c, []int{0, 1})
 	st := expect[StatePayload](t, c, MsgRoomState)
-	if st.DiscardsLeft != 2 || st.HandsLeft != 4 || st.CurrentScore != 0 {
+	if st.DiscardsLeft != 2 || st.HandsLeft != InitialHands || st.CurrentScore != 0 {
 		t.Fatalf("state %+v", st)
 	}
 	if len(st.CardsInHand) != 8 || st.DeckCount != 42 {
@@ -300,7 +303,7 @@ func TestLoseWhenHandsExhausted(t *testing.T) {
 		expect[StatePayload](t, c, MsgRoomState)
 	}
 	fin := expect[MatchFinishedPayload](t, c, MsgMatchDone)
-	if fin.Result != "LOSE" || fin.TargetReached || fin.Reason != "HANDS_EXHAUSTED" || fin.WinnerID != BotPlayerID || fin.HandsPlayed != 4 {
+	if fin.Result != "LOSE" || fin.TargetReached || fin.Reason != "HANDS_EXHAUSTED" || fin.WinnerID != BotPlayerID || fin.HandsPlayed != InitialHands {
 		t.Fatalf("finished %+v", fin)
 	}
 	time.Sleep(50 * time.Millisecond)
@@ -310,24 +313,81 @@ func TestLoseWhenHandsExhausted(t *testing.T) {
 }
 
 func TestFullMatchNeverRunsOutOfCards(t *testing.T) {
-	// Worst case: 3 discards of 5 cards plus 4 hands of 5 cards = 35 <= 44 cards in the deck.
+	// 3 discards of 5 plus InitialHands plays of 5 = 115 cards > 52: the dealer must recycle.
 	r, _ := newTestRoom(t, 1000000000, 21, false)
 	c := connect(t, r, host)
 	expect[StatePayload](t, c, MsgRoomState)
+	check := func(step string) {
+		t.Helper()
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+		if len(r.hand) != HandSize {
+			t.Fatalf("%s: hand size %d", step, len(r.hand))
+		}
+		seen := map[string]bool{}
+		for _, card := range r.hand {
+			seen[card.Rank+card.Suit] = true
+		}
+		if len(seen) != HandSize {
+			t.Fatalf("%s: duplicate cards in hand", step)
+		}
+		if r.dealer.Total()+len(r.hand) != 52 {
+			t.Fatalf("%s: dealer %d + hand %d != 52", step, r.dealer.Total(), len(r.hand))
+		}
+		if r.dealer.DeckCount() > 52-HandSize {
+			t.Fatalf("%s: deck count %d", step, r.dealer.DeckCount())
+		}
+	}
 	for i := 0; i < InitialDiscards; i++ {
 		r.Discard(c, []int{0, 1, 2, 3, 4})
 		expect[StatePayload](t, c, MsgRoomState)
+		check("discard")
 	}
 	for i := 0; i < InitialHands; i++ {
 		r.Play(c, []int{0, 1, 2, 3, 4})
 		expect[HandScoredPayload](t, c, MsgHandScored)
 		st := expect[StatePayload](t, c, MsgRoomState)
-		if len(st.CardsInHand) != 8 {
+		if len(st.CardsInHand) != HandSize {
 			t.Fatalf("hand size %d after play %d", len(st.CardsInHand), i+1)
 		}
+		check("play")
 	}
-	if st := r.Snapshot(); st.DeckCount != 44-35 {
-		t.Fatalf("deck %d, want 9", st.DeckCount)
+	r.mu.RLock()
+	n := r.dealer.Reshuffles()
+	r.mu.RUnlock()
+	if n < 2 {
+		t.Fatalf("reshuffles %d, want >= 2", n)
+	}
+}
+
+func TestSameSeedSameRecycling(t *testing.T) {
+	run := func() []models.Card {
+		r, _ := newTestRoom(t, 1000000000, 77, false)
+		c := connect(t, r, host)
+		expect[StatePayload](t, c, MsgRoomState)
+		for i := 0; i < InitialDiscards; i++ {
+			r.Discard(c, []int{0, 1, 2, 3, 4})
+			expect[StatePayload](t, c, MsgRoomState)
+		}
+		for i := 0; i < InitialHands; i++ {
+			r.Play(c, []int{0, 1, 2, 3, 4})
+			expect[HandScoredPayload](t, c, MsgHandScored)
+			expect[StatePayload](t, c, MsgRoomState)
+		}
+		return r.Snapshot().CardsInHand
+	}
+	a, b := run(), run()
+	for i := range a {
+		if a[i] != b[i] {
+			t.Fatalf("hands differ at %d: %v vs %v", i, a[i], b[i])
+		}
+	}
+}
+
+func TestDefaultTargetScoreWhenZero(t *testing.T) {
+	r, _ := newTestRoom(t, 0, 1, false)
+	if got := r.Snapshot().TargetScore; got != models.DefaultTargetScore {
+		t.Fatalf("target %d, want %d", got, models.DefaultTargetScore)
 	}
 }
 

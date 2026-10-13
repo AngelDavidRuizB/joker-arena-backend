@@ -83,6 +83,9 @@ type StatePayload struct {
 	WithBot      bool          `json:"with_bot"`
 	HostID       string        `json:"host_id"`
 	Players      []PlayerInfo  `json:"players"`
+
+	HandsTotal    int `json:"hands_total"`
+	DiscardsTotal int `json:"discards_total"`
 }
 
 // HandScoredPayload is the payload of HAND_SCORED: the full algebraic audit of a played hand.

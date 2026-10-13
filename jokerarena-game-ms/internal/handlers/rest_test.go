@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"jokerarena-game-ms/internal/db"
+	"jokerarena-game-ms/internal/models"
 	"jokerarena-game-ms/internal/room"
 )
 
@@ -117,6 +118,33 @@ func TestCreateRoomValidation(t *testing.T) {
 	resp, body := postJSON(t, srv.URL+"/api/rooms", map[string]any{"player_id": player["id"], "target_score": -5})
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("negative target: want 400, got %d (%v)", resp.StatusCode, body)
+	}
+}
+
+func TestCreateRoomTargetScore(t *testing.T) {
+	srv := newTestServer(t)
+	_, player := postJSON(t, srv.URL+"/api/players", map[string]string{"alias": "Target1"})
+	cases := []struct {
+		name   string
+		body   map[string]any
+		status int
+		want   float64
+	}{
+		{"default", map[string]any{"player_id": player["id"]}, http.StatusCreated, models.DefaultTargetScore},
+		{"26000", map[string]any{"player_id": player["id"], "target_score": 26000}, http.StatusCreated, 26000},
+		{"one", map[string]any{"player_id": player["id"], "target_score": 1}, http.StatusCreated, 1},
+		{"too big", map[string]any{"player_id": player["id"], "target_score": 100001}, http.StatusBadRequest, 0},
+		{"negative", map[string]any{"player_id": player["id"], "target_score": -5}, http.StatusBadRequest, 0},
+	}
+	for _, c := range cases {
+		resp, body := postJSON(t, srv.URL+"/api/rooms", c.body)
+		if resp.StatusCode != c.status {
+			t.Errorf("%s: want %d, got %d (%v)", c.name, c.status, resp.StatusCode, body)
+			continue
+		}
+		if c.status == http.StatusCreated && body["target_score"] != c.want {
+			t.Errorf("%s: target_score %v, want %v", c.name, body["target_score"], c.want)
+		}
 	}
 }
 

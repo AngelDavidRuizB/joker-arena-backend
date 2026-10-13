@@ -2,7 +2,7 @@
 
 Videojuego web distribuido de póker con *Jokers* en tiempo real, inspirado en la mecánica de puntuación de *Balatro*. Prototipo 1 de Arquitectura de Software 2026-II (Universidad Nacional de Colombia). Todo el sistema se despliega con **Docker Compose**.
 
-**Alcance implementado (F1–F5):** registro por alias · salas con código `JKR-XXXX` y modo Bot · sincronización en tiempo real por WebSocket (baraja de 52, mano de 8 cartas) · jugar/descartar de 1 a 5 cartas con reconocimiento de las 9 manos de póker · cascada de puntuación con los 3 Jokers (Banner → Joker Clásico → The Duo) bajo la fórmula Chips × Mult · cierre de partida (meta de puntos o 4 manos agotadas) persistido en PostgreSQL.
+**Alcance implementado (F1–F5):** registro por alias · salas con código `JKR-XXXX` y modo Bot · sincronización en tiempo real por WebSocket (baraja de 52, mano de 8 cartas) · jugar/descartar de 1 a 5 cartas con reconocimiento de las 9 manos de póker · cascada de puntuación con los 3 Jokers (Banner → Joker Clásico → The Duo) bajo la fórmula Chips × Mult · cierre de partida (meta de puntos o 20 manos agotadas) persistido en PostgreSQL.
 
 ---
 
@@ -70,10 +70,10 @@ Copie las variables de `.env.remote.example` a `.env` (`GAME_DB_HOST`, `GAME_DB_
 
 ## 🎮 Cómo se juega
 1. Regístrate con un alias (sin contraseña).
-2. Crea una sala (meta 300/600/1200, con o sin Bot) o únete con un código. Quien no es dueño de la sala entra como espectador.
-3. Selecciona hasta 5 cartas (clic o teclas `1–8`) y **Jugar mano** (`P`) o **Descartar** (`D`). Tienes 4 manos y 3 descartes.
+2. Crea una sala (meta 22 000 / 26 000 / 33 000, con o sin Bot) o únete con un código. Quien no es dueño de la sala entra como espectador.
+3. Selecciona hasta 5 cartas (clic o teclas `1–8`) y **Jugar mano** (`P`) o **Descartar** (`D`). Tienes 20 manos y 3 descartes; la baraja se recicla (las cartas jugadas y descartadas se rebarajan cuando el mazo se agota).
 4. Puntaje = `(fichas de la mano + fichas de las cartas que puntúan + 30 × descartes restantes) × ((mult de la mano + 4) × 2 si hay pareja)`. Ejemplo: Full House K♠K♥K♣4♦4♠ sin descartes = 78 × 16 = **1248**.
-5. Ganas al alcanzar la meta; pierdes si agotas las 4 manos.
+5. Ganas al alcanzar la meta; pierdes si agotas las 20 manos.
 
 ---
 

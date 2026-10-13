@@ -17,7 +17,7 @@ import (
 // Game constants of Prototype 1.
 const (
 	HandSize        = 8
-	InitialHands    = 4
+	InitialHands    = 20
 	InitialDiscards = 3
 	MaxParticipants = 4
 )
@@ -76,7 +76,7 @@ type Room struct {
 	discardsLeft int
 	score        int
 	handNumber   int
-	deck         []models.Card
+	dealer       *poker.Dealer
 	hand         []models.Card
 	players      []PlayerInfo
 	result       *MatchFinishedPayload
@@ -89,16 +89,15 @@ type Room struct {
 // newRoom builds a room, deals the first eight cards and starts the actor goroutine.
 func newRoom(opts Options, persister Persister) *Room {
 	if opts.TargetScore <= 0 {
-		opts.TargetScore = 300
+		opts.TargetScore = models.DefaultTargetScore
 	}
 	opts.Code = strings.ToUpper(strings.TrimSpace(opts.Code))
 	seed := opts.Seed
 	if seed == 0 {
 		seed = poker.RandomSeed()
 	}
-	deck := poker.NewShuffledDeck(seed)
-	hand := append([]models.Card(nil), deck[:HandSize]...)
-	rest := append([]models.Card(nil), deck[HandSize:]...)
+	dealer := poker.NewDealer(seed)
+	hand := dealer.Draw(HandSize)
 
 	players := []PlayerInfo{opts.Host}
 	if opts.WithBot {
@@ -114,7 +113,7 @@ func newRoom(opts Options, persister Persister) *Room {
 		status:       models.StatusWaiting,
 		handsLeft:    InitialHands,
 		discardsLeft: InitialDiscards,
-		deck:         rest,
+		dealer:       dealer,
 		hand:         hand,
 		players:      players,
 		lastActive:   now,
@@ -200,13 +199,16 @@ func (r *Room) snapshotLocked() StatePayload {
 		HandsLeft:    r.handsLeft,
 		DiscardsLeft: r.discardsLeft,
 		CurrentScore: r.score,
-		DeckCount:    len(r.deck),
+		DeckCount:    r.dealer.DeckCount(),
 		ActiveJokers: append([]string(nil), poker.ActiveJokers...),
 		CardsInHand:  append([]models.Card(nil), r.hand...),
 		HandNumber:   r.handNumber,
 		WithBot:      r.opts.WithBot,
 		HostID:       r.opts.Host.ID,
 		Players:      append([]PlayerInfo(nil), r.players...),
+
+		HandsTotal:    InitialHands,
+		DiscardsTotal: InitialDiscards,
 	}
 }
 
@@ -228,7 +230,7 @@ func (r *Room) ToDetailsResponse() models.RoomDetailsResponse {
 		HandsLeft:    r.handsLeft,
 		DiscardsLeft: r.discardsLeft,
 		CurrentScore: r.score,
-		DeckCount:    len(r.deck),
+		DeckCount:    r.dealer.DeckCount(),
 		ActiveJokers: append([]string(nil), poker.ActiveJokers...),
 		CardsInHand:  append([]models.Card(nil), r.hand...),
 		Players:      ids,
@@ -388,9 +390,11 @@ func (r *Room) replaceCards(sorted []int) []models.Card {
 			kept = append(kept, c)
 		}
 	}
-	for len(kept) < HandSize && len(r.deck) > 0 {
-		kept = append(kept, r.deck[0])
-		r.deck = r.deck[1:]
+	// Draw BEFORE discarding so the cards just removed cannot come straight back.
+	kept = append(kept, r.dealer.Draw(HandSize-len(kept))...)
+	r.dealer.Discard(taken)
+	if len(kept) < HandSize {
+		log.Printf("[ERROR] dealer short draw in %s: hand has %d cards", r.opts.Code, len(kept))
 	}
 	r.hand = kept
 	return taken

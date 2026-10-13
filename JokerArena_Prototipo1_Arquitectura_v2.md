@@ -42,7 +42,7 @@ El prototipo implementa **un único flujo completo de extremo a extremo** que at
 |---|---|---|
 | F1 | **Registro de jugador por alias** (sin contraseña). | Frontend → Game Engine → PostgreSQL |
 | F2 | **Crear / unirse a sala** con código alfanumérico (2–4 jugadores) u opción **"Jugar contra Bot"**. | Frontend → Game Engine |
-| F3 | **Partida de una sola Blind**: meta de **300 puntos**, **4 manos** y **3 descartes** por jugador, **8 cartas** en mano. Gana quien alcance la meta primero; si nadie la alcanza, gana el mayor puntaje. | Frontend ⇄ Game Engine |
+| F3 | **Partida de una sola Blind**: meta de **22 000 puntos**, **20 manos** y **3 descartes** por jugador, **8 cartas** en mano. Gana quien alcance la meta primero; si nadie la alcanza, gana el mayor puntaje. | Frontend ⇄ Game Engine |
 | F4 | **Jugar / descartar** de 1 a 5 cartas. El servidor valida y evalúa la mano (*server-authoritative*). | Frontend ⇄ Game Engine |
 | F5 | **Cálculo de puntaje** con 9 tipos de mano y 3 Jokers fijos (ver tablas abajo). | Game Engine |
 | F6 | **Envío de cada jugada a telemetría**, persistencia en MongoDB y difusión en vivo a la consola. | Game Engine → Telemetry → MongoDB → Frontend |

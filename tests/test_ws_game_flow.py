@@ -18,7 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from tests.config import GAME_ENGINE_URL, GAME_ENGINE_WS_URL  # noqa: E402
+from tests.config import GAME_ENGINE_URL, GAME_ENGINE_WS_URL, INITIAL_HANDS  # noqa: E402
 
 try:
     from websockets.sync.client import connect as ws_connect
@@ -81,7 +81,7 @@ class TestWebSocketGameFlow(unittest.TestCase):
             self.assertEqual(state["room_code"], code)
             self.assertEqual(len(state["cards_in_hand"]), 8)
             self.assertEqual(state["deck_count"], 44)
-            self.assertEqual((state["hands_left"], state["discards_left"], state["current_score"]), (4, 3, 0))
+            self.assertEqual((state["hands_left"], state["discards_left"], state["current_score"]), (INITIAL_HANDS, 3, 0))
             self.assertEqual(state["active_jokers"], ["banner", "joker", "the_duo"])
             keys = {(c["rank"], c["suit"]) for c in state["cards_in_hand"]}
             self.assertEqual(len(keys), 8, "cards must be unique")
@@ -107,7 +107,7 @@ class TestWebSocketGameFlow(unittest.TestCase):
             self.assertEqual(scored["score"], chips * mult)
 
             self.assertEqual(after["current_score"], scored["score"])
-            self.assertEqual(after["hands_left"], 3)
+            self.assertEqual(after["hands_left"], INITIAL_HANDS - 1)
             self.assertEqual(len(after["cards_in_hand"]), 8)
             self.assertEqual(after["deck_count"], 39)
         finally:
@@ -157,11 +157,11 @@ class TestWebSocketGameFlow(unittest.TestCase):
         self.assertEqual(details["status"], "FINISHED")
 
     def test_06_lose_when_hands_are_exhausted(self):
-        player_id, code = _register_and_create_room(100_000)  # unreachable in 4 hands
+        player_id, code = _register_and_create_room(100_000)  # unreachable in 20 hands
         s = Session(code, player_id)
         try:
             s.expect("ROOM_STATE_UPDATE")
-            for _ in range(4):
+            for _ in range(INITIAL_HANDS):
                 s.send("PLAY_HAND", [0, 1, 2, 3, 4])
                 s.expect("HAND_SCORED")
                 s.expect("ROOM_STATE_UPDATE")

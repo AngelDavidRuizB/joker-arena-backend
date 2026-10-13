@@ -4,7 +4,7 @@ Milestone 3 Acceptance Test Suite: Go Game Engine REST Endpoints & PostgreSQL Pe
 Verifies:
 1. POST /api/players: Happy path, schema fields, boundary lengths (2-30 chars),
    Anti-XSS validation, empty/whitespace rejection, and idempotent upsert on duplicate alias.
-2. POST /api/rooms: Room creation with 6-character code, default target score (300),
+2. POST /api/rooms: Room creation with 6-character code, default target score (22000),
    optional bot selector, persistence in matches and match_players, and validation of player_id.
 3. GET /api/rooms/{code}: Case-insensitive query, WAITING status, player roster,
    cards_in_hand (8 French cards), 404 on missing, and boundary handling on empty/malformed codes.
@@ -23,6 +23,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from tests.config import DEFAULT_TARGET_SCORE, INITIAL_HANDS
 from tests.config import (
     GAME_ENGINE_PORT,
     GAME_ENGINE_URL,
@@ -235,8 +236,8 @@ class TestM3GameREST(unittest.TestCase):
 
         self.assertTrue(data.get("with_bot", True))
 
-    def test_14_room_target_score_default_300(self):
-        """M3.14: Room target score defaults to 300 points if omitted."""
+    def test_14_room_target_score_default_22000(self):
+        """M3.14: Room target score defaults to 22000 points if omitted."""
         alias = f"HostTarget_{uuid.uuid4().hex[:4]}"
         if self.is_game_engine_live and not self.mock_mode:
             p_id = self.rest_client.register_player(alias).json()["id"]
@@ -244,12 +245,12 @@ class TestM3GameREST(unittest.TestCase):
             self.assertEqual(res.status_code, 201)
             room_code = res.json()["room_code"]
             q_res = self.rest_client.get_room(room_code)
-            self.assertEqual(q_res.json()["target_score"], 300)
+            self.assertEqual(q_res.json()["target_score"], DEFAULT_TARGET_SCORE)
         else:
             _, p_data = self.mock_server.register_player(alias)
             _, data = self.mock_server.create_room(p_data["id"])
             room = self.mock_server.rooms[data["room_code"]]
-            self.assertEqual(room["target_score"], 300)
+            self.assertEqual(room["target_score"], DEFAULT_TARGET_SCORE)
 
     def test_15_room_creation_rejects_unknown_player_id(self):
         """M3.15: Creating room with unknown player UUID returns HTTP 400 Bad Request."""
@@ -283,7 +284,7 @@ class TestM3GameREST(unittest.TestCase):
             self.assertEqual(code, 200)
 
         self.assertEqual(data["status"], "WAITING")
-        self.assertEqual(data["target_score"], 300)
+        self.assertEqual(data["target_score"], DEFAULT_TARGET_SCORE)
         self.assertIn("players", data)
         self.assertIsInstance(data["players"], list)
 

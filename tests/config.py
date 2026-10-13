@@ -62,3 +62,8 @@ def is_mock_mode() -> bool:
     return os.environ.get("E2E_MOCK_MODE", "false").lower() in ("1", "true", "yes")
 
 TIMEOUT_SECONDS = float(get_conf("E2E_TIMEOUT_SECONDS", "3.0"))
+
+# Game balance (mirrors jokerarena-game-ms: room.InitialHands / models.DefaultTargetScore)
+INITIAL_HANDS = 20
+INITIAL_DISCARDS = 3
+DEFAULT_TARGET_SCORE = 22000

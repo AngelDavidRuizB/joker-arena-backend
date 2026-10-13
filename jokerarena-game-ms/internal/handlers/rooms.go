@@ -24,7 +24,7 @@ func (h *Handler) HandleCreateRoom(w http.ResponseWriter, r *http.Request) {
 
 	targetScore := req.TargetScore
 	if targetScore == 0 {
-		targetScore = 300
+		targetScore = models.DefaultTargetScore
 	}
 	if targetScore < 0 || targetScore > maxTargetScore {
 		WriteError(w, http.StatusBadRequest, "target_score must be between 1 and 100000")

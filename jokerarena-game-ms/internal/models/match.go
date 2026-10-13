@@ -10,6 +10,9 @@ import (
 // BotAlias is the reserved username of the bot opponent in the players table.
 const BotAlias = "Bot-JokerBot"
 
+// DefaultTargetScore is the target score of a match when none is requested (Clásica).
+const DefaultTargetScore = 22000
+
 // Match status values exposed through the API. In PostgreSQL they are derived from
 // matches.result: WAITING / IN_PROGRESS are stored verbatim; WIN / LOSE map to FINISHED.
 const (
