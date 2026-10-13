@@ -318,6 +318,8 @@ func drainUntilFinished(t *testing.T, c *Client) (fin MatchFinishedPayload, host
 				t.Fatal(err)
 			}
 			hostScore, botScore = st.CurrentScore, st.BotScore
+		case MsgBotAction:
+			// Announced before the bot mutates its hand; not needed for score tracking.
 		case MsgMatchDone:
 			if err := json.Unmarshal(payload, &fin); err != nil {
 				t.Fatal(err)
@@ -366,6 +368,9 @@ func TestInitialBotState(t *testing.T) {
 	if st.BotHandsLeft != InitialHands || st.BotDiscardsLeft != InitialDiscards {
 		t.Fatalf("bot hands/discards left %d/%d, want %d/%d", st.BotHandsLeft, st.BotDiscardsLeft, InitialHands, InitialDiscards)
 	}
+	if len(st.BotHand) != HandSize {
+		t.Fatalf("snapshot bot_hand size %d, want %d", len(st.BotHand), HandSize)
+	}
 	r.mu.RLock()
 	botHand := append([]models.Card(nil), r.botHand...)
 	r.mu.RUnlock()
@@ -379,6 +384,9 @@ func TestNoBotStateIsZero(t *testing.T) {
 	st := r.Snapshot()
 	if st.BotScore != 0 || st.BotHandsLeft != 0 || st.BotDiscardsLeft != 0 || st.BotHandNumber != 0 {
 		t.Fatalf("bot state must be zero without a bot: %+v", st)
+	}
+	if len(st.BotHand) != 0 {
+		t.Fatalf("bot_hand must be nil/empty without a bot: %+v", st.BotHand)
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -418,7 +426,22 @@ func TestBotActsOnceAfterHostPlay(t *testing.T) {
 	}
 	expect[StatePayload](t, c, MsgRoomState) // host STATE
 
+	// BOT_ACTION announces the bot's decision before it mutates its hand.
+	botAction := expect[BotActionPayload](t, c, MsgBotAction)
+	if botAction.Action != "PLAY" && botAction.Action != "DISCARD" {
+		t.Fatalf("bot action %q, want PLAY or DISCARD", botAction.Action)
+	}
+	if len(botAction.CardIndices) < 1 || len(botAction.CardIndices) > 5 {
+		t.Fatalf("bot action card indices %v, want 1..5", botAction.CardIndices)
+	}
+
 	typ, payload := next(t, c)
+	if botAction.Action == "PLAY" && typ != MsgHandScored {
+		t.Fatalf("BOT_ACTION PLAY must precede the bot HAND_SCORED, got %s", typ)
+	}
+	if botAction.Action == "DISCARD" && typ != MsgRoomState {
+		t.Fatalf("BOT_ACTION DISCARD must precede the bot STATE, got %s", typ)
+	}
 	if typ == MsgHandScored {
 		var botScored HandScoredPayload
 		if err := json.Unmarshal(payload, &botScored); err != nil {

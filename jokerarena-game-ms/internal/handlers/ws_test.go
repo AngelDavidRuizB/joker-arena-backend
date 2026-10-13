@@ -145,6 +145,9 @@ func TestWebSocketBotPlaysAfterHostPlay(t *testing.T) {
 	if !st.WithBot || st.BotHandsLeft != room.InitialHands || st.BotDiscardsLeft != room.InitialDiscards {
 		t.Fatalf("initial bot state %+v", st)
 	}
+	if len(st.BotHand) != 8 {
+		t.Fatalf("initial bot_hand size %d, want 8", len(st.BotHand))
+	}
 
 	botPlayed := false
 	for round := 0; round < room.InitialDiscards+2 && !botPlayed; round++ {
@@ -160,8 +163,30 @@ func TestWebSocketBotPlaysAfterHostPlay(t *testing.T) {
 		var hostState room.StatePayload
 		_ = json.Unmarshal(expectType(t, conn, "ROOM_STATE_UPDATE"), &hostState)
 
+		// BOT_ACTION announces the bot's decision before it mutates its hand, so its indices
+		// reference hostState.BotHand (the bot hand as last broadcast).
+		var botAction room.BotActionPayload
+		_ = json.Unmarshal(expectType(t, conn, "BOT_ACTION"), &botAction)
+		if botAction.Action != "PLAY" && botAction.Action != "DISCARD" {
+			t.Fatalf("bot action %q, want PLAY or DISCARD", botAction.Action)
+		}
+		if len(botAction.CardIndices) < 1 || len(botAction.CardIndices) > 5 {
+			t.Fatalf("bot action card indices %v, want 1..5", botAction.CardIndices)
+		}
+		for _, idx := range botAction.CardIndices {
+			if idx < 0 || idx >= len(hostState.BotHand) {
+				t.Fatalf("bot action index %d out of range of bot hand (len %d)", idx, len(hostState.BotHand))
+			}
+		}
+
 		// Peek the next frame: HAND_SCORED(bot) means the bot played; STATE means it discarded.
 		env := readEnv(t, conn)
+		if botAction.Action == "PLAY" && env.Type != "HAND_SCORED" {
+			t.Fatalf("BOT_ACTION PLAY must precede the bot HAND_SCORED, got %s", env.Type)
+		}
+		if botAction.Action == "DISCARD" && env.Type != "ROOM_STATE_UPDATE" {
+			t.Fatalf("BOT_ACTION DISCARD must precede the bot STATE, got %s", env.Type)
+		}
 		switch env.Type {
 		case "HAND_SCORED":
 			var botScored room.HandScoredPayload

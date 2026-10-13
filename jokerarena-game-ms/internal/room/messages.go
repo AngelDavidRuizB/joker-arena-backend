@@ -18,6 +18,7 @@ const (
 	MsgRoomState  = "ROOM_STATE_UPDATE"
 	MsgHandScored = "HAND_SCORED"
 	MsgMatchDone  = "MATCH_FINISHED"
+	MsgBotAction  = "BOT_ACTION"
 	MsgError      = "ERROR"
 )
 
@@ -88,10 +89,21 @@ type StatePayload struct {
 	DiscardsTotal int `json:"discards_total"`
 
 	// Bot opponent state. Zero when the match has no bot.
-	BotScore        int `json:"bot_score"`
-	BotHandsLeft    int `json:"bot_hands_left"`
-	BotHandNumber   int `json:"bot_hand_number"`
-	BotDiscardsLeft int `json:"bot_discards_left"`
+	BotScore        int           `json:"bot_score"`
+	BotHandsLeft    int           `json:"bot_hands_left"`
+	BotHandNumber   int           `json:"bot_hand_number"`
+	BotDiscardsLeft int           `json:"bot_discards_left"`
+	BotHand         []models.Card `json:"bot_hand,omitempty"`
+}
+
+// BotActionPayload is the payload of BOT_ACTION: it announces the bot's chosen action for
+// the current round BEFORE the bot mutates its hand. Action is "PLAY" | "DISCARD" and
+// CardIndices reference the bot hand as last broadcast (StatePayload.BotHand).
+type BotActionPayload struct {
+	RoomCode    string `json:"room_code"`
+	Action      string `json:"action"`
+	CardIndices []int  `json:"card_indices"`
+	HandNumber  int    `json:"hand_number"`
 }
 
 // HandScoredPayload is the payload of HAND_SCORED: the full algebraic audit of a played hand.

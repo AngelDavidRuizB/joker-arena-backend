@@ -206,6 +206,10 @@ func (r *Room) Snapshot() StatePayload {
 }
 
 func (r *Room) snapshotLocked() StatePayload {
+	var botHand []models.Card
+	if r.opts.WithBot {
+		botHand = append([]models.Card(nil), r.botHand...)
+	}
 	return StatePayload{
 		RoomCode:     r.opts.Code,
 		MatchID:      r.opts.MatchID,
@@ -229,6 +233,7 @@ func (r *Room) snapshotLocked() StatePayload {
 		BotHandsLeft:    r.botHandsLeft,
 		BotHandNumber:   r.botHandNumber,
 		BotDiscardsLeft: r.botDiscardsLeft,
+		BotHand:         botHand,
 	}
 }
 
@@ -552,17 +557,32 @@ func (r *Room) finishAfterHostPlayLocked() *MatchFinishedPayload {
 
 // botTakeTurn runs the bot's single reactive action after a host PLAY that did not finish
 // the match. The bot either PLAYs (scoring, consuming a hand) or DISCARDs (refilling, no
-// score, no hand consumed). It mutates the bot fields under r.mu, broadcasting the bot's
+// score, no hand consumed). It first announces its decision with a BOT_ACTION frame (before
+// mutating its hand), then mutates the bot fields under r.mu, broadcasting the bot's
 // HAND_SCORED (on a PLAY) followed by a ROOM_STATE_UPDATE, so the per-round order observed
-// by clients is: host HAND_SCORED, host STATE, bot HAND_SCORED (play only), bot STATE.
+// by clients is: host HAND_SCORED, host STATE, BOT_ACTION, then PLAY: bot HAND_SCORED + bot
+// STATE; DISCARD: bot STATE.
 func (r *Room) botTakeTurn() {
 	r.mu.Lock()
 
 	action, indices := poker.BotDecision(r.botHand, r.botDiscardsLeft)
+	sorted := append([]int(nil), indices...)
+	sort.Ints(sorted)
+
+	// Announce the bot's chosen action BEFORE mutating its hand, so the card indices still
+	// reference the bot hand as last broadcast in a ROOM_STATE_UPDATE. Snapshot the payload
+	// fields under the lock, release it to broadcast, then re-acquire for the mutation.
+	botAction := BotActionPayload{
+		RoomCode:    r.opts.Code,
+		Action:      action,
+		CardIndices: append([]int(nil), sorted...),
+		HandNumber:  r.botHandNumber,
+	}
+	r.mu.Unlock()
+	r.broadcast(marshal(MsgBotAction, botAction))
+	r.mu.Lock()
 
 	if action == "DISCARD" {
-		sorted := append([]int(nil), indices...)
-		sort.Ints(sorted)
 		r.replaceBotCards(sorted)
 		r.botDiscardsLeft--
 		r.mu.Unlock()
@@ -571,8 +591,8 @@ func (r *Room) botTakeTurn() {
 	}
 
 	// PLAY: score the selection against the bot's remaining discards.
-	selected := make([]models.Card, len(indices))
-	for i, idx := range indices {
+	selected := make([]models.Card, len(sorted))
+	for i, idx := range sorted {
 		selected[i] = r.botHand[idx]
 	}
 	breakdown, err := poker.Score(selected, r.botDiscardsLeft)
@@ -581,8 +601,6 @@ func (r *Room) botTakeTurn() {
 		log.Printf("[ERROR] bot score failed in %s: %v", r.opts.Code, err)
 		return
 	}
-	sorted := append([]int(nil), indices...)
-	sort.Ints(sorted)
 	r.replaceBotCards(sorted)
 	r.botHandsLeft--
 	r.botHandNumber++
