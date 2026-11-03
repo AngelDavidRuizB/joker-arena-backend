@@ -1,0 +1,13 @@
+# API Gateway (Esteban Andrés Gómez Álvarez) · incluido desde docker-compose.p2.yml
+services:
+  jokerarena-gateway:
+    build: .
+    container_name: jokerarena-gateway
+    restart: unless-stopped
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    networks: [jokerarena-net]
+
+networks:
+  jokerarena-net:
+    name: jokerarena-net

@@ -1,0 +1,19 @@
+# telemetry-ms (José Alejandro Solano Garcés) · incluido desde docker-compose.p2.yml
+services:
+  jokerarena-telemetry-ms:
+    build: .
+    container_name: jokerarena-telemetry-ms
+    restart: unless-stopped
+    environment:
+      MONGO_URL: mongodb://${MONGO_ROOT_USER:-admin}:${MONGO_ROOT_PASSWORD}@jokerarena-mongo:27017/?authSource=admin
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-jokerarena}:${RABBITMQ_PASSWORD}@jokerarena-rabbitmq:5672/
+    depends_on:
+      jokerarena-mongo:
+        condition: service_healthy
+      jokerarena-rabbitmq:
+        condition: service_healthy
+    networks: [jokerarena-net]
+
+networks:
+  jokerarena-net:
+    name: jokerarena-net

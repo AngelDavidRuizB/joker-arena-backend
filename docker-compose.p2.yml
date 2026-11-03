@@ -1,0 +1,146 @@
+# ==============================================================================
+# JokerArena - Prototipo 2 · Orquestación completa
+# Infraestructura (este archivo) + cada servicio en su propio compose.yml (include).
+# Uso:  cp .env.example .env   (y completar las contraseñas)
+#       docker compose -f docker-compose.p2.yml up -d --build --wait
+# ==============================================================================
+name: jokerarena
+
+include:
+  - services/auth-identity-ms/compose.yml
+  - services/rooms-lobby-ms/compose.yml
+  - services/game-engine-ms/compose.yml
+  - services/bot-ai-ms/compose.yml
+  - services/telemetry-ms/compose.yml
+  - services/leaderboard-stats-ms/compose.yml
+  - services/liveops-rules-ms/compose.yml
+  - services/cluster-monitor-ms/compose.yml
+  - gateway/compose.yml
+  - clients/web-ssr/compose.yml
+
+services:
+  # --------------------------------------------------------------------------
+  # Datos 1 · PostgreSQL (relacional): un esquema y un usuario por servicio
+  # --------------------------------------------------------------------------
+  jokerarena-postgres:
+    image: postgres:16-alpine
+    container_name: jokerarena-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-jokerarena}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD en .env}
+      POSTGRES_DB: ${POSTGRES_DB:-jokerarena}
+      # Contraseñas de los usuarios por servicio (las usa db/postgres/init/00_schemas.sh)
+      AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD:?Defina AUTH_DB_PASSWORD en .env}
+      LOBBY_DB_PASSWORD: ${LOBBY_DB_PASSWORD:?Defina LOBBY_DB_PASSWORD en .env}
+      GAME_DB_PASSWORD: ${GAME_DB_PASSWORD:?Defina GAME_DB_PASSWORD en .env}
+      LIVEOPS_DB_PASSWORD: ${LIVEOPS_DB_PASSWORD:?Defina LIVEOPS_DB_PASSWORD en .env}
+      MONITOR_DB_PASSWORD: ${MONITOR_DB_PASSWORD:?Defina MONITOR_DB_PASSWORD en .env}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - p2-pgdata:/var/lib/postgresql/data
+      - ./db/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks: [jokerarena-net]
+
+  # --------------------------------------------------------------------------
+  # Datos 2 · MongoDB (NoSQL documental): telemetría
+  # --------------------------------------------------------------------------
+  jokerarena-mongo:
+    image: mongo:7
+    container_name: jokerarena-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Defina MONGO_ROOT_PASSWORD en .env}
+      MONGO_INITDB_DATABASE: telemetry
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    volumes:
+      - p2-mongodata:/data/db
+      - ./db/mongo/init.js:/docker-entrypoint-initdb.d/init.js:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 15s
+    networks: [jokerarena-net]
+
+  # --------------------------------------------------------------------------
+  # Datos 3 · Redis (NoSQL clave-valor): sesiones y cachés
+  # --------------------------------------------------------------------------
+  jokerarena-redis:
+    image: redis:7.4-alpine
+    container_name: jokerarena-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - p2-redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [jokerarena-net]
+
+  # --------------------------------------------------------------------------
+  # Datos 4 · Neo4j (NoSQL de grafos): ranking
+  # --------------------------------------------------------------------------
+  jokerarena-neo4j:
+    image: neo4j:5.26-community
+    container_name: jokerarena-neo4j
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?Defina NEO4J_PASSWORD en .env (mínimo 8 caracteres)}
+      NEO4J_server_memory_heap_max__size: 512m
+    ports:
+      - "${NEO4J_HTTP_PORT:-7474}:7474"
+    volumes:
+      - p2-neo4jdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 20s
+    networks: [jokerarena-net]
+
+  # --------------------------------------------------------------------------
+  # Asíncrono · RabbitMQ (exchange topic jokerarena.events)
+  # --------------------------------------------------------------------------
+  jokerarena-rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: jokerarena-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-jokerarena}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Defina RABBITMQ_PASSWORD en .env}
+    ports:
+      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
+    volumes:
+      - p2-rabbitdata:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 15s
+    networks: [jokerarena-net]
+
+networks:
+  jokerarena-net:
+    name: jokerarena-net
+
+volumes:
+  p2-pgdata:
+  p2-mongodata:
+  p2-redisdata:
+  p2-neo4jdata:
+  p2-rabbitdata:

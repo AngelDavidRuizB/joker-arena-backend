@@ -1,0 +1,6 @@
+node_modules
+.next
+coverage
+src/test
+README.md
+compose.yml

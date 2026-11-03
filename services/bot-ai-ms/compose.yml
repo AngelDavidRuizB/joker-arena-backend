@@ -1,0 +1,13 @@
+# bot-ai-ms (Juan David Suárez Coronado) · incluido desde docker-compose.p2.yml
+services:
+  jokerarena-bot-ai-ms:
+    build: .
+    container_name: jokerarena-bot-ai-ms
+    restart: unless-stopped
+    environment:
+      PORT: 8084
+    networks: [jokerarena-net]
+
+networks:
+  jokerarena-net:
+    name: jokerarena-net
