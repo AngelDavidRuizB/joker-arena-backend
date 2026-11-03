@@ -1,5 +1,34 @@
 # JokerArena: Multiverse Poker Engine 🃏
 
+> **Prototipo 2 (vigente):** arquitectura de microservicios — 8 servicios de lógica en 5 lenguajes, API Gateway, RabbitMQ, PostgreSQL + MongoDB + Redis + Neo4j, web con SSR y CLI.
+> Documento de entrega: [`docs/p2/p2_2b.md`](docs/p2/p2_2b.md) · Contratos: [`contracts/`](contracts/)
+>
+> ```bash
+> cp .env.example .env   # completar las contraseñas
+> docker compose -f docker-compose.p2.yml up -d --build --wait
+> bash scripts/verify_p2.sh
+> ```
+>
+> Juego: http://localhost:3000 · Gateway: http://localhost:8080 · Administración: alias `admin` + `ADMIN_PASSWORD`.
+>
+> | Servicio | Lenguaje | Carpeta |
+> |---|---|---|
+> | game-engine-ms | Go | `services/game-engine-ms` |
+> | auth-identity-ms | Python | `services/auth-identity-ms` |
+> | rooms-lobby-ms | C# | `services/rooms-lobby-ms` |
+> | bot-ai-ms | Rust | `services/bot-ai-ms` |
+> | telemetry-ms | Python | `services/telemetry-ms` |
+> | leaderboard-stats-ms | TypeScript | `services/leaderboard-stats-ms` |
+> | liveops-rules-ms | TypeScript | `services/liveops-rules-ms` |
+> | cluster-monitor-ms | Go | `services/cluster-monitor-ms` |
+> | API Gateway | nginx | `gateway/` |
+> | web-ssr · cli | Next.js · Python | `clients/` |
+>
+> Lo que sigue documenta el **Prototipo 1**, que se conserva sin cambios (`docker-compose.yml`, `jokerarena-game-ms/`, `jokerarena-telemetry-ms/`).
+
+---
+
+
 Videojuego web distribuido de póker con *Jokers* en tiempo real, inspirado en la mecánica de puntuación de *Balatro*. Prototipo 1 de Arquitectura de Software 2026-II (Universidad Nacional de Colombia). Todo el sistema se despliega con **Docker Compose**.
 
 **Alcance implementado (F1–F5):** registro por alias · salas con código `JKR-XXXX` y modo Bot · sincronización en tiempo real por WebSocket (baraja de 52, mano de 8 cartas) · jugar/descartar de 1 a 5 cartas con reconocimiento de las 9 manos de póker · cascada de puntuación con los 3 Jokers (Banner → Joker Clásico → The Duo) bajo la fórmula Chips × Mult · cierre de partida (meta de puntos o 20 manos agotadas) persistido en PostgreSQL.

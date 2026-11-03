@@ -1,0 +1,20 @@
+# rooms-lobby-ms (Jose Arturo Herrera Rivera) · incluido desde docker-compose.p2.yml
+services:
+  jokerarena-rooms-lobby-ms:
+    build: .
+    container_name: jokerarena-rooms-lobby-ms
+    restart: unless-stopped
+    environment:
+      PORT: 8083
+      POSTGRES_URL: postgres://svc_lobby:${LOBBY_DB_PASSWORD}@jokerarena-postgres:5432/${POSTGRES_DB:-jokerarena}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-jokerarena}:${RABBITMQ_PASSWORD}@jokerarena-rabbitmq:5672/
+    depends_on:
+      jokerarena-postgres:
+        condition: service_healthy
+      jokerarena-rabbitmq:
+        condition: service_healthy
+    networks: [jokerarena-net]
+
+networks:
+  jokerarena-net:
+    name: jokerarena-net

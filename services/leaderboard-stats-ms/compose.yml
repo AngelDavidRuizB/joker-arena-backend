@@ -1,0 +1,38 @@
+# ------------------------------------------------------------------------------
+# leaderboard-stats-ms (Nicole Ariadna Celemin Triana)
+# Se incluye desde docker-compose.p2.yml (include:). Las rutas son relativas a
+# esta carpeta. jokerarena-neo4j, jokerarena-redis y jokerarena-rabbitmq los
+# define el compose principal (infraestructura).
+# ------------------------------------------------------------------------------
+services:
+  jokerarena-leaderboard-stats-ms:
+    build: .
+    container_name: jokerarena-leaderboard-stats-ms
+    restart: unless-stopped
+    environment:
+      PORT: 8086
+      NEO4J_URL: bolt://jokerarena-neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+      REDIS_URL: redis://jokerarena-redis:6379/0
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-jokerarena}:${RABBITMQ_PASSWORD}@jokerarena-rabbitmq:5672/
+      LEADERBOARD_CACHE_TTL_SECONDS: ${LEADERBOARD_CACHE_TTL_SECONDS:-30}
+    depends_on:
+      jokerarena-neo4j:
+        condition: service_healthy
+      jokerarena-redis:
+        condition: service_healthy
+      jokerarena-rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8086/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    networks:
+      - jokerarena-net
+
+networks:
+  jokerarena-net:
+    name: jokerarena-net

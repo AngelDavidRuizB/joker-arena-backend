@@ -1,0 +1,60 @@
+flowchart TB
+  subgraph PRES["Presentación"]
+    direction LR
+    WEB["«component» web-ssr<br/>Next.js SSR · TypeScript<br/>(juego + consola admin)"]
+    CLI["«component» cli<br/>Python"]
+  end
+
+  GW["«connector component» API Gateway · nginx :8080<br/>enrutamiento · validación JWT · CORS"]
+
+  subgraph LOGIC["Lógica"]
+    direction LR
+    AUTH["auth-identity-ms<br/>Python"]
+    LOBBY["rooms-lobby-ms<br/>C#"]
+    GE["game-engine-ms<br/>Go"]
+    BOT["bot-ai-ms<br/>Rust"]
+    LO["liveops-rules-ms<br/>TypeScript"]
+    TEL["telemetry-ms<br/>Python"]
+    LB["leaderboard-stats-ms<br/>TypeScript"]
+    CM["cluster-monitor-ms<br/>Go"]
+  end
+
+  MQ{{"«async component» RabbitMQ · exchange topic jokerarena.events"}}
+
+  subgraph DATA["Datos"]
+    direction LR
+    PG[("PostgreSQL")]
+    RD[("Redis")]
+    MG[("MongoDB")]
+    NJ[("Neo4j")]
+  end
+  DOCK["Docker Engine API (ro)"]
+
+  WEB -->|"REST + WS (+ /admin)"| GW
+  CLI -->|"REST + WS"| GW
+  GW -->|"REST / WS"| LOGIC
+  GW -->|"auth_request /auth/verify"| AUTH
+
+  GE -->|"HTTP /bot/decide"| BOT
+  GE -->|"HTTP /rooms/{code}"| LOBBY
+  GE -->|"HTTP /liveops/ruleset"| LO
+  GE -->|"HTTP JWKS"| AUTH
+
+  AUTH -. pub .-> MQ
+  LOBBY -. "pub / sub" .-> MQ
+  GE -. "pub / sub" .-> MQ
+  LO -. pub .-> MQ
+  MQ -. sub .-> TEL
+  MQ -. sub .-> LB
+
+  AUTH -->|SQL| PG
+  LOBBY -->|SQL| PG
+  GE -->|SQL| PG
+  LO -->|SQL| PG
+  AUTH -->|RESP| RD
+  LO -->|RESP| RD
+  LB -->|RESP| RD
+  TEL -->|"Mongo wire"| MG
+  LB -->|Bolt| NJ
+  CM -->|"Docker API"| DOCK
+  CM -. "sondas solo lectura" .-> DATA
