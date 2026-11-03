@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.env.local
+.env.*.local
+
+# Tauri build artifacts
+src-tauri/target/
+
+# Logs
+npm-debug.log*
+
+# Editor
+.vscode/
+.idea/
+*.swp
