@@ -1,0 +1,15 @@
+flowchart TB
+  L1["<b>Capa 1 · Presentación</b><br/>web-ssr (Next.js SSR, juego + consola admin) · cli (Python)"]
+  L2["<b>Capa 2 · Comunicación / Orquestación</b><br/>API Gateway nginx :8080 — enrutamiento · validación JWT · CORS · límite de peticiones"]
+  L3["<b>Capa 3 · Lógica de negocio</b><br/>auth-identity-ms · rooms-lobby-ms · game-engine-ms · bot-ai-ms<br/>telemetry-ms · leaderboard-stats-ms · liveops-rules-ms"]
+  L4["<b>Capa 4 · Integración asíncrona</b><br/>RabbitMQ — exchange topic jokerarena.events"]
+  L5["<b>Capa 5 · Datos</b><br/>PostgreSQL · MongoDB · Redis · Neo4j"]
+  OBS["<b>Corte transversal · Observabilidad</b><br/>cluster-monitor-ms<br/>(sondas de solo lectura a Docker, broker y almacenes)"]
+
+  L1 -->|"HTTP / WS"| L2
+  L2 -->|"HTTP / WS"| L3
+  L3 -->|"publica / consume"| L4
+  L3 -->|"SQL · Bolt · Mongo wire · RESP"| L5
+  L2 -->|"/admin/cluster"| OBS
+  OBS -.-> L4
+  OBS -.-> L5

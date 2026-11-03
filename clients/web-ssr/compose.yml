@@ -1,0 +1,21 @@
+# web-ssr (Jose Arturo Herrera Rivera) · incluido desde docker-compose.p2.yml
+services:
+  jokerarena-web-ssr:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_GATEWAY_WS_URL: ${PUBLIC_GATEWAY_WS_URL:-}
+    container_name: jokerarena-web-ssr
+    restart: unless-stopped
+    environment:
+      GATEWAY_INTERNAL_URL: http://jokerarena-gateway:8080
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      jokerarena-gateway:
+        condition: service_healthy
+    networks: [jokerarena-net]
+
+networks:
+  jokerarena-net:
+    name: jokerarena-net

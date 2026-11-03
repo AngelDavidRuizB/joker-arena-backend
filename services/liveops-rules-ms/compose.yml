@@ -1,0 +1,23 @@
+# liveops-rules-ms (Jaisson Andrés Machado Bautista) · incluido desde docker-compose.p2.yml
+services:
+  jokerarena-liveops-rules-ms:
+    build: .
+    container_name: jokerarena-liveops-rules-ms
+    restart: unless-stopped
+    environment:
+      PORT: 8087
+      POSTGRES_URL: postgres://svc_liveops:${LIVEOPS_DB_PASSWORD}@jokerarena-postgres:5432/${POSTGRES_DB:-jokerarena}
+      REDIS_URL: redis://jokerarena-redis:6379/0
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-jokerarena}:${RABBITMQ_PASSWORD}@jokerarena-rabbitmq:5672/
+    depends_on:
+      jokerarena-postgres:
+        condition: service_healthy
+      jokerarena-redis:
+        condition: service_healthy
+      jokerarena-rabbitmq:
+        condition: service_healthy
+    networks: [jokerarena-net]
+
+networks:
+  jokerarena-net:
+    name: jokerarena-net

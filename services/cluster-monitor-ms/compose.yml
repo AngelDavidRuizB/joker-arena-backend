@@ -1,0 +1,31 @@
+# cluster-monitor-ms (Ángel David Ruiz Barbosa) · incluido desde docker-compose.p2.yml
+# CONCESIÓN DE SEGURIDAD: el socket de Docker se monta en SOLO LECTURA y solo aquí.
+# Es una herramienta de observabilidad para administración, no para producción.
+services:
+  jokerarena-cluster-monitor-ms:
+    build: .
+    container_name: jokerarena-cluster-monitor-ms
+    restart: unless-stopped
+    # Grupo dueño de /var/run/docker.sock en el host (Linux: stat -c %g /var/run/docker.sock).
+    # En Docker Desktop (Windows/Mac) el socket es del grupo root: 0.
+    group_add:
+      - "${DOCKER_GID:-0}"
+    environment:
+      PORT: 8088
+      COMPOSE_PROJECT: jokerarena
+      POLL_INTERVAL_SECONDS: 5
+      RABBITMQ_MGMT_URL: http://jokerarena-rabbitmq:15672
+      RABBITMQ_MONITOR_USER: ${RABBITMQ_USER:-jokerarena}
+      RABBITMQ_MONITOR_PASSWORD: ${RABBITMQ_PASSWORD}
+      POSTGRES_MONITOR_URL: postgres://svc_monitor:${MONITOR_DB_PASSWORD}@jokerarena-postgres:5432/${POSTGRES_DB:-jokerarena}?sslmode=disable
+      REDIS_ADDR: jokerarena-redis:6379
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      jokerarena-rabbitmq:
+        condition: service_healthy
+    networks: [jokerarena-net]
+
+networks:
+  jokerarena-net:
+    name: jokerarena-net

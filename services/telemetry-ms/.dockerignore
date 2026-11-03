@@ -1,0 +1,6 @@
+tests
+__pycache__
+*.pyc
+README.md
+compose.yml
+requirements-dev.txt

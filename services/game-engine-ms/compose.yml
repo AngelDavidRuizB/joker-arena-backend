@@ -1,0 +1,26 @@
+# game-engine-ms (Santiago Zamora Garzon) · incluido desde docker-compose.p2.yml
+services:
+  jokerarena-game-engine-ms:
+    build: .
+    container_name: jokerarena-game-engine-ms
+    restart: unless-stopped
+    environment:
+      PORT: 8081
+      STORAGE_MODE: postgres
+      POSTGRES_URL: postgres://svc_game:${GAME_DB_PASSWORD}@jokerarena-postgres:5432/${POSTGRES_DB:-jokerarena}?sslmode=disable
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-jokerarena}:${RABBITMQ_PASSWORD}@jokerarena-rabbitmq:5672/
+      AUTH_JWKS_URL: http://jokerarena-auth-identity-ms:8082/.well-known/jwks.json
+      ROOMS_LOBBY_URL: http://jokerarena-rooms-lobby-ms:8083
+      LIVEOPS_URL: http://jokerarena-liveops-rules-ms:8087
+      BOT_AI_URL: http://jokerarena-bot-ai-ms:8084
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+    depends_on:
+      jokerarena-postgres:
+        condition: service_healthy
+      jokerarena-rabbitmq:
+        condition: service_healthy
+    networks: [jokerarena-net]
+
+networks:
+  jokerarena-net:
+    name: jokerarena-net

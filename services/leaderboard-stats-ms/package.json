@@ -1,0 +1,30 @@
+{
+  "name": "leaderboard-stats-ms",
+  "version": "1.0.0",
+  "private": true,
+  "description": "JokerArena P2 - Ranking y estadísticas de jugadores (Neo4j + Redis + RabbitMQ)",
+  "main": "dist/main.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:integration": "INTEGRATION=1 vitest run test/integration.test.ts"
+  },
+  "dependencies": {
+    "amqplib": "0.10.5",
+    "fastify": "5.2.1",
+    "ioredis": "5.4.2",
+    "neo4j-driver": "5.28.1",
+    "pino": "9.6.0"
+  },
+  "devDependencies": {
+    "@types/amqplib": "0.10.6",
+    "@types/node": "22.10.7",
+    "typescript": "5.7.3",
+    "vitest": "2.1.9"
+  }
+}

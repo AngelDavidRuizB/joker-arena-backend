@@ -1,0 +1,5 @@
+tests/
+**/bin/
+**/obj/
+README.md
+compose.yml
