@@ -4,3 +4,4 @@
 fn main() {
     jokerarena_admin_desktop_lib::run();
 }
+

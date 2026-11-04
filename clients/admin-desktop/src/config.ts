@@ -8,3 +8,4 @@ export const GATEWAY_URL =
 export const WS_METRICS_URL = GATEWAY_URL.replace(/^http/, "ws") + "/admin/cluster/metrics";
 export const LOGIN_URL = `${GATEWAY_URL}/api/auth/login`;
 export const LIVEOPS_URL = `${GATEWAY_URL}/admin/liveops/ruleset`;
+

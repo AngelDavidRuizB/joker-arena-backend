@@ -101,3 +101,4 @@ clients/admin-desktop/
 Para integrar el Editor de Reglas real, reemplaza el contenido de  
 `src/components/LiveOpsEditor.tsx`.  
 El prop `token: string` ya llega listo para los headers `Authorization: Bearer <token>`.
+

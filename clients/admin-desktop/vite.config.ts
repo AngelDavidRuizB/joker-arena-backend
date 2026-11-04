@@ -26,3 +26,4 @@ export default defineConfig(async () => ({
     sourcemap: !!process.env.TAURI_DEBUG,
   },
 }));
+

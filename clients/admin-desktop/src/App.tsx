@@ -8,13 +8,18 @@ import { LiveOpsEditor } from "./components/LiveOpsEditor";
 type Tab = "radar" | "liveops";
 
 export function App() {
-  const { token, alias, role, error, loading, login, logout } = useGateway();
+  const { token, alias, role, error, loading, login, loginDemo, logout } = useGateway();
   const { snapshot, status, lastUpdated, reconnect } = useClusterWS(token);
   const [tab, setTab] = useState<Tab>("radar");
   const [demoMode, setDemoMode] = useState(false);
 
+  const handleDemoLogin = () => {
+    setDemoMode(true);
+    loginDemo();
+  };
+
   if (!token) {
-    return <Login onLogin={login} loading={loading} error={error} />;
+    return <Login onLogin={login} onLoginDemo={handleDemoLogin} loading={loading} error={error} />;
   }
 
   return (
@@ -140,3 +145,4 @@ const styles: Record<string, React.CSSProperties> = {
   },
   main: { flex: 1, overflow: "auto" },
 };
+

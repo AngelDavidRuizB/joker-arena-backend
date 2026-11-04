@@ -2,11 +2,12 @@ import { useState, type FormEvent } from "react";
 
 interface LoginProps {
   onLogin: (alias: string, password: string) => void;
+  onLoginDemo: () => void;
   loading: boolean;
   error: string | null;
 }
 
-export function Login({ onLogin, loading, error }: LoginProps) {
+export function Login({ onLogin, onLoginDemo, loading, error }: LoginProps) {
   const [alias, setAlias] = useState("");
   const [password, setPassword] = useState("");
 
@@ -58,6 +59,14 @@ export function Login({ onLogin, loading, error }: LoginProps) {
 
           <button style={styles.button} type="submit" disabled={loading || !alias.trim()}>
             {loading ? "Autenticando…" : "Ingresar"}
+          </button>
+
+          <button
+            style={styles.demoButton}
+            type="button"
+            onClick={onLoginDemo}
+          >
+            🚀 Explorar en Modo Demo (sin backend)
           </button>
         </form>
 
@@ -120,6 +129,17 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     marginTop: 4,
   },
+  demoButton: {
+    background: "#1e3a5f",
+    color: "#7dd3fc",
+    border: "1px solid #38bdf8",
+    borderRadius: 6,
+    padding: "0.6rem",
+    fontSize: "0.85rem",
+    cursor: "pointer",
+    fontWeight: 600,
+  },
   hint: { fontSize: "0.75rem", color: "#475569", textAlign: "center", margin: 0 },
   code: { color: "#7dd3fc", fontFamily: "monospace" },
 };
+

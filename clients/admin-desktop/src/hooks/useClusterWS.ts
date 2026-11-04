@@ -109,3 +109,4 @@ export function useClusterWS(token: string | null): UseClusterWSReturn {
 
   return { snapshot, status, lastUpdated, disconnect, reconnect };
 }
+

@@ -11,6 +11,7 @@ interface AuthState {
 
 interface UseGatewayReturn extends AuthState {
   login: (alias: string, password: string) => Promise<void>;
+  loginDemo: () => void;
   logout: () => void;
   isAdmin: boolean;
 }
@@ -67,5 +68,16 @@ export function useGateway(): UseGatewayReturn {
     setState({ token: null, alias: null, role: null, error: null, loading: false });
   }, []);
 
-  return { ...state, login, logout, isAdmin: state.role === "admin" };
+  const loginDemo = useCallback(() => {
+    setState({
+      token: "demo-jwt-token",
+      alias: "admin-demo",
+      role: "admin",
+      error: null,
+      loading: false,
+    });
+  }, []);
+
+  return { ...state, login, loginDemo, logout, isAdmin: state.role === "admin" };
 }
+

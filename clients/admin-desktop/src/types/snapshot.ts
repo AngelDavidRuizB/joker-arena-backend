@@ -59,3 +59,4 @@ export interface Snapshot {
   sources: Record<string, string>; // docker|rabbitmq|postgres|redis -> ok|degraded
   alarms: Alarm[];
 }
+
