@@ -31,6 +31,43 @@ describe('scoring cascade', () => {
     expect(steps.at(-1)).toMatchObject({ chips: 138, mult: 16, score: 2208 });
   });
 
+  it('shows the live Banner value and the singular', () => {
+    const h = hand({
+      discards_left: 1,
+      final_chips: 123,
+      score: 1968,
+      jokers: [
+        { id: 'banner', name: 'Banner', effect: '', triggered: true, chips_added: 45, mult_added: 0, mult_factor: 1 },
+        ...hand().jokers.slice(1),
+      ],
+    });
+    expect(buildCascade(h)[2].detail).toBe('+45 fichas × 1 descarte restante = +45');
+  });
+
+  it('adds a Happy Hour step so the numbers add up to the score', () => {
+    const h = hand({ final_mult: 32, score: 2496 });
+    const steps = buildCascade(h);
+    expect(steps.map((s) => s.kind)).toEqual(['hand', 'cards', 'banner', 'joker', 'duo', 'happy', 'total']);
+    expect(steps.at(-1)).toMatchObject({ chips: 78, mult: 32, score: 2496 });
+    expect(formulaText(h)).toBe('(40 + 38 + 0) × ((4 + 4) × 2 × 2) = 78 × 32 = 2496');
+  });
+
+  it('explains a Joker disabled by LiveOps instead of inventing a game reason', () => {
+    const h = hand({
+      discards_left: 2,
+      final_mult: 8,
+      score: 624,
+      jokers: [
+        { id: 'banner', name: 'Banner', effect: '', enabled: false, triggered: false, chips_added: 0, mult_added: 0, mult_factor: 1 },
+        hand().jokers[1],
+        { id: 'the_duo', name: 'The Duo', effect: '', enabled: false, triggered: false, chips_added: 0, mult_added: 0, mult_factor: 1 },
+      ],
+    });
+    const steps = buildCascade(h);
+    expect(steps[2].detail).toContain('Desactivado por LiveOps');
+    expect(steps[4].detail).toContain('Desactivado por LiveOps');
+  });
+
   it('leaves the multiplier untouched when The Duo does not trigger', () => {
     const h = hand({
       poker_hand: 'STRAIGHT',

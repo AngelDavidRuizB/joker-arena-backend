@@ -52,6 +52,24 @@ export interface JokerMeta {
   glyph: string;
 }
 
+/** The Joker part of the LiveOps ruleset (GET /api/game/ruleset). */
+export interface LiveJokers {
+  banner: { enabled: boolean; chips_per_discard: number };
+  classic: { enabled: boolean; mult_bonus: number };
+  duo: { enabled: boolean; mult_factor: number };
+}
+
+/** Joker description with the values in force; the static text until they load. */
+export function jokerDescription(j: JokerMeta, live: LiveJokers | null): string {
+  if (!live) return j.description;
+  const rule = { banner: live.banner, joker: live.classic, the_duo: live.duo }[j.id];
+  if (rule && !rule.enabled) return 'Desactivado por LiveOps';
+  if (j.id === 'banner') return `+${live.banner.chips_per_discard} fichas por cada descarte restante`;
+  if (j.id === 'joker') return `+${live.classic.mult_bonus} Mult en toda mano jugada`;
+  if (j.id === 'the_duo') return j.description.replace(/×\s*\d+/, `×${live.duo.mult_factor}`);
+  return j.description;
+}
+
 /** Static presentation data for the three canonical Jokers. */
 export const JOKERS: JokerMeta[] = [
   {

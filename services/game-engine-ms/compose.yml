@@ -14,6 +14,7 @@ services:
       LIVEOPS_URL: http://jokerarena-liveops-rules-ms:8087
       BOT_AI_URL: http://jokerarena-bot-ai-ms:8084
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+      ROOM_IDLE_TIMEOUT: ${ROOM_IDLE_TIMEOUT:-15m}
     depends_on:
       jokerarena-postgres:
         condition: service_healthy

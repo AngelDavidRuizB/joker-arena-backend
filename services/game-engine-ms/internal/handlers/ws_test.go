@@ -130,4 +130,3 @@ func TestHealthReportsDependencies(t *testing.T) {
 		t.Fatalf("health: %+v", body)
 	}
 }
-
