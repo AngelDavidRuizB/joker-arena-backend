@@ -84,13 +84,44 @@ func (p *Postgres) RecordOutcome(ctx context.Context, o room.MatchOutcome) error
 func (p *Postgres) LatestMatch(ctx context.Context, roomCode string) (*MatchRow, error) {
 	var m MatchRow
 	err := p.pool.QueryRow(ctx, `
-		SELECT match_id::text, room_code, status FROM game.matches
+		SELECT match_id::text, room_code, status, progress FROM game.matches
 		WHERE room_code = $1 ORDER BY created_at DESC LIMIT 1`, roomCode).
-		Scan(&m.MatchID, &m.RoomCode, &m.Status)
+		Scan(&m.MatchID, &m.RoomCode, &m.Status, &m.Progress)
 	if err != nil {
 		return nil, wrap(err)
 	}
 	return &m, nil
+}
+
+// SaveProgress stores the resumable state, ignoring writes older than the stored one.
+func (p *Postgres) SaveProgress(ctx context.Context, matchID string, pr room.MatchProgress) error {
+	_, err := p.pool.Exec(ctx, `
+		UPDATE game.matches SET progress = $2, progress_at = now()
+		WHERE match_id = $1 AND status <> 'FINISHED'
+		  AND COALESCE((progress->>'seq')::int, 0) < $3`, matchID, pr, pr.Seq)
+	return wrap(err)
+}
+
+// OrphanMatches lists IN_PROGRESS matches without activity for longer than idle.
+func (p *Postgres) OrphanMatches(ctx context.Context, idle time.Duration) ([]room.OrphanMatch, error) {
+	rows, err := p.pool.Query(ctx, `
+		SELECT match_id::text, room_code, host_id, host_alias, with_bot, target_score, difficulty, progress
+		FROM game.matches
+		WHERE status = 'IN_PROGRESS'
+		  AND COALESCE(progress_at, started_at, created_at) < now() - make_interval(secs => $1)`, idle.Seconds())
+	if err != nil {
+		return nil, wrap(err)
+	}
+	defer rows.Close()
+	var out []room.OrphanMatch
+	for rows.Next() {
+		var o room.OrphanMatch
+		if err := rows.Scan(&o.MatchID, &o.RoomCode, &o.Host.ID, &o.Host.Alias, &o.WithBot, &o.TargetScore, &o.Difficulty, &o.Progress); err != nil {
+			return nil, wrap(err)
+		}
+		out = append(out, o)
+	}
+	return out, wrap(rows.Err())
 }
 
 // Ping checks connectivity.

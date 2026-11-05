@@ -65,6 +65,8 @@ export interface JokerEffect {
   id: string;
   name: string;
   effect: string;
+  /** false: disabled by LiveOps, not a miss of the game state. */
+  enabled?: boolean;
   triggered: boolean;
   chips_added: number;
   mult_added: number;

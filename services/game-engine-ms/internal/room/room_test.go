@@ -527,8 +527,8 @@ func TestFinishRuleHandsExhaustedHostAhead(t *testing.T) {
 
 func TestFinishRuleHandsExhaustedBotAheadOrTie(t *testing.T) {
 	for _, tc := range []struct {
-		name       string
-		host, bot  int
+		name      string
+		host, bot int
 	}{
 		{"bot ahead", 400, 500},
 		{"tie", 400, 400},

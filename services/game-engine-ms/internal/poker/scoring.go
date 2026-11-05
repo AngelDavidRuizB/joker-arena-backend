@@ -35,6 +35,7 @@ type JokerEffect struct {
 	ID         string  `json:"id"`
 	Name       string  `json:"name"`
 	Effect     string  `json:"effect"`
+	Enabled    bool    `json:"enabled"` // false: disabled by LiveOps (not a game-state miss)
 	Triggered  bool    `json:"triggered"`
 	ChipsAdded int     `json:"chips_added"`
 	MultAdded  int     `json:"mult_added"`
@@ -103,7 +104,7 @@ func ScoreWithRuleset(cards []models.Card, discardsLeft int, rs Ruleset) (*Break
 
 	// 1. Banner: ADD_CHIPS, proportional to remaining discards.
 	bannerOn := rs.Jokers.Banner.Enabled
-	banner := JokerEffect{ID: JokerBanner, Name: "Banner", MultFactor: 1,
+	banner := JokerEffect{ID: JokerBanner, Name: "Banner", MultFactor: 1, Enabled: bannerOn,
 		Effect:    fmt.Sprintf("+%d Chips por cada descarte restante", rs.Jokers.Banner.ChipsPerDiscard),
 		Triggered: bannerOn && discardsLeft > 0}
 	if banner.Triggered {
@@ -112,7 +113,7 @@ func ScoreWithRuleset(cards []models.Card, discardsLeft int, rs Ruleset) (*Break
 	chips += banner.ChipsAdded
 
 	// 2. Joker Clasico: ADD_MULT, always active when enabled.
-	classic := JokerEffect{ID: JokerClassic, Name: "Joker Clásico", MultFactor: 1,
+	classic := JokerEffect{ID: JokerClassic, Name: "Joker Clásico", MultFactor: 1, Enabled: rs.Jokers.Classic.Enabled,
 		Effect:    fmt.Sprintf("+%d Mult en toda mano", rs.Jokers.Classic.MultBonus),
 		Triggered: rs.Jokers.Classic.Enabled}
 	if classic.Triggered {
@@ -121,7 +122,7 @@ func ScoreWithRuleset(cards []models.Card, discardsLeft int, rs Ruleset) (*Break
 	mult += classic.MultAdded
 
 	// 3. The Duo: X_MULT, only if the hand contains a pair.
-	duo := JokerEffect{ID: JokerDuo, Name: "The Duo", MultFactor: 1,
+	duo := JokerEffect{ID: JokerDuo, Name: "The Duo", MultFactor: 1, Enabled: rs.Jokers.Duo.Enabled,
 		Effect:    fmt.Sprintf("x%d Mult si la mano contiene un Par", rs.Jokers.Duo.MultFactor),
 		Triggered: rs.Jokers.Duo.Enabled && ev.ContainsPair}
 	if duo.Triggered {

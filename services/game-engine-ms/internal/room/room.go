@@ -35,8 +35,9 @@ type Options struct {
 	TargetScore int
 	WithBot     bool
 	Host        PlayerInfo
-	Seed        uint64 // 0 means a random seed
-	Difficulty  string // bot difficulty: easy | normal | hard
+	Seed        uint64         // 0 means a random seed
+	Difficulty  string         // bot difficulty: easy | normal | hard
+	Resume      *MatchProgress // continue a match after an engine restart (nil: new match)
 
 	// Integrations (all optional; nil keeps the standalone Prototype 1 behavior).
 	Publisher EventPublisher
@@ -88,6 +89,7 @@ type Room struct {
 	result       *MatchFinishedPayload
 	lastActive   time.Time
 	createdAt    time.Time
+	progressSeq  int
 
 	// Bot opponent state (populated only when opts.WithBot). The bot owns its own dealer
 	// derived from the host seed, so its deck is deterministic yet independent of the host's.
@@ -140,6 +142,15 @@ func newRoom(opts Options, persister Persister) *Room {
 		r.botHand = r.botDealer.Draw(HandSize)
 		r.botHandsLeft = InitialHands
 		r.botDiscardsLeft = InitialDiscards
+	}
+	if p := opts.Resume; p != nil {
+		r.status = models.StatusInProgress
+		r.progressSeq = p.Seq
+		r.score, r.handsLeft, r.discardsLeft, r.handNumber = p.Score, p.HandsLeft, p.DiscardsLeft, p.HandNumber
+		if opts.WithBot {
+			r.botScore, r.botHandsLeft = p.BotScore, p.BotHandsLeft
+			r.botDiscardsLeft, r.botHandNumber = p.BotDiscardsLeft, p.BotHandNumber
+		}
 	}
 	if mc, ok := persister.(MatchCreator); ok {
 		o := r.opts
@@ -480,6 +491,7 @@ func (r *Room) handleAction(c command, play bool) {
 		r.replaceCards(sorted)
 		r.discardsLeft--
 		r.markInProgressLocked()
+		r.saveProgressLocked()
 		r.mu.Unlock()
 		r.broadcastState()
 	}
@@ -548,6 +560,9 @@ func (r *Room) doPlay(sorted []int, discardsLeft int) {
 	// the bot does NOT take a turn.
 	r.publish(EventHandScored, handScoredEvent(r.opts.Code, r.opts.MatchID, r.opts.Host.ID, false, r.handNumber, r.score, breakdown))
 	finished := r.finishAfterHostPlayLocked()
+	if finished == nil {
+		r.saveProgressLocked()
+	}
 	r.mu.Unlock()
 
 	r.broadcast(marshal(MsgHandScored, scored))
@@ -629,6 +644,7 @@ func (r *Room) botTakeTurn() {
 	if action == "DISCARD" {
 		r.replaceBotCards(sorted)
 		r.botDiscardsLeft--
+		r.saveProgressLocked()
 		r.mu.Unlock()
 		r.broadcastState()
 		return
@@ -666,6 +682,9 @@ func (r *Room) botTakeTurn() {
 	var finished *MatchFinishedPayload
 	if r.status != models.StatusFinished && r.botScore >= r.opts.TargetScore && r.score < r.opts.TargetScore {
 		finished = r.finishLocked(false, "TARGET_SCORE_REACHED")
+	}
+	if finished == nil {
+		r.saveProgressLocked()
 	}
 	r.mu.Unlock()
 

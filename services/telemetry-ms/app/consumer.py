@@ -18,11 +18,17 @@ class Consumer:
     def __init__(self, url: str, exchange: str, store: TelemetryStore):
         self.url, self.exchange, self.store = url, exchange, store
         self._conn: Optional[aio_pika.abc.AbstractRobustConnection] = None
+        # Referencias fuertes: aio_pika solo restaura tras una reconexión los canales y colas
+        # que siguen vivos; con variables locales el consumidor se pierde sin ningún error.
+        self._channel: Optional[aio_pika.abc.AbstractRobustChannel] = None
+        self._exchange: Optional[aio_pika.abc.AbstractRobustExchange] = None
+        self._queue: Optional[aio_pika.abc.AbstractRobustQueue] = None
         self._task: Optional[asyncio.Task] = None
 
     @property
     def connected(self) -> bool:
-        return self._conn is not None and not self._conn.is_closed
+        return (self._conn is not None and not self._conn.is_closed
+                and self._channel is not None and not self._channel.is_closed and self._queue is not None)
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._run())
@@ -32,13 +38,13 @@ class Consumer:
         while True:
             try:
                 self._conn = await aio_pika.connect_robust(self.url, timeout=5)
-                channel = await self._conn.channel()
-                await channel.set_qos(prefetch_count=20)
-                exchange = await channel.declare_exchange(self.exchange, aio_pika.ExchangeType.TOPIC, durable=True)
-                queue = await channel.declare_queue(QUEUE, durable=True)
+                self._channel = await self._conn.channel()
+                await self._channel.set_qos(prefetch_count=20)
+                self._exchange = await self._channel.declare_exchange(self.exchange, aio_pika.ExchangeType.TOPIC, durable=True)
+                self._queue = await self._channel.declare_queue(QUEUE, durable=True)
                 for key in BINDINGS:
-                    await queue.bind(exchange, key)
-                await queue.consume(self._on_message)
+                    await self._queue.bind(self._exchange, key)
+                await self._queue.consume(self._on_message)
                 log.info("consumiendo %s (%s)", QUEUE, ", ".join(BINDINGS))
                 return
             except Exception as exc:  # noqa: BLE001 - el broker puede tardar en arrancar

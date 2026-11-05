@@ -64,7 +64,7 @@ func main() {
 	mgr := room.NewManager(repo)
 	mgr.SetDefaults(room.Options{Publisher: publisher, Rules: rules.Current, Bot: bot})
 	defer mgr.Close()
-	mgr.StartJanitor(ctx, 5*time.Minute, 2*time.Hour)
+	mgr.StartJanitor(ctx, min(cfg.RoomIdleTimeout/4, time.Minute), cfg.RoomIdleTimeout)
 
 	router := handlers.NewRouter(handlers.Deps{
 		Repo:           repo,
