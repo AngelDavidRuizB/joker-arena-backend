@@ -11,17 +11,22 @@ export function backoffDelay(attempt: number): number {
 }
 
 /**
- * URL del WebSocket del juego. El navegador se conecta directo al gateway (Next no hace
- * proxy de WebSockets): NEXT_PUBLIC_GATEWAY_WS_URL o, por defecto, el puerto 8080 del mismo
- * host. El JWT viaja en ?token= porque los navegadores no permiten cabeceras en WebSocket.
+ * URL del WebSocket del juego. En el Prototipo 3 el navegador se conecta al mismo origen
+ * (Reverse Proxy en 443/80 -> Gateway -> Motor) usando `wss:` sobre HTTPS o `ws:` sobre HTTP,
+ * salvo que `NEXT_PUBLIC_GATEWAY_WS_URL` especifique un origen distinto. El JWT viaja en
+ * `?token=` porque los navegadores no permiten cabeceras en WebSocket.
  */
 export function buildWsUrl(
   roomCode: string,
   token: string,
-  loc: Pick<Location, 'protocol' | 'hostname'> = window.location,
+  loc: Pick<Location, 'protocol'> & { host?: string; hostname?: string } = window.location,
   base: string | undefined = process.env.NEXT_PUBLIC_GATEWAY_WS_URL,
 ): string {
-  const origin = base && base.length > 0 ? base.replace(/\/$/, '') : `${loc.protocol === 'https:' ? 'wss:' : 'ws:'}//${loc.hostname}:8080`;
+  const authority = loc.host && loc.host.length > 0 ? loc.host : (loc.hostname ?? '');
+  const origin =
+    base && base.length > 0
+      ? base.replace(/\/$/, '')
+      : `${loc.protocol === 'https:' ? 'wss:' : 'ws:'}//${authority}`;
   return `${origin}/ws/${encodeURIComponent(roomCode)}?token=${encodeURIComponent(token)}`;
 }
 

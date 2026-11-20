@@ -48,9 +48,16 @@ export function toPutBody(expectedVersion: number, r: Pick<Ruleset, 'jokers' | '
   return { expected_version: expectedVersion, jokers: r.jokers, happy_hour: r.happy_hour };
 }
 
-export function wsAdminUrl(token: string, loc: Pick<Location, 'protocol' | 'hostname'> = window.location): string {
-  const base = process.env.NEXT_PUBLIC_GATEWAY_WS_URL;
-  const origin = base ? base.replace(/\/$/, '') : `${loc.protocol === 'https:' ? 'wss:' : 'ws:'}//${loc.hostname}:8080`;
+export function wsAdminUrl(
+  token: string,
+  loc: Pick<Location, 'protocol'> & { host?: string; hostname?: string } = window.location,
+  base: string | undefined = process.env.NEXT_PUBLIC_GATEWAY_WS_URL,
+): string {
+  const authority = loc.host && loc.host.length > 0 ? loc.host : (loc.hostname ?? '');
+  const origin =
+    base && base.length > 0
+      ? base.replace(/\/$/, '')
+      : `${loc.protocol === 'https:' ? 'wss:' : 'ws:'}//${authority}`;
   return `${origin}/admin/cluster/metrics?token=${encodeURIComponent(token)}`;
 }
 

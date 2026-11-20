@@ -57,9 +57,11 @@ describe('GameSocket', () => {
   afterEach(() => vi.useRealTimers());
 
   it('builds same-origin ws/wss URLs', () => {
-    expect(buildWsUrl('JKR-ABCD', 't0k', { protocol: 'http:', hostname: 'localhost' }, '')).toBe('ws://localhost:8080/ws/JKR-ABCD?token=t0k');
-    expect(buildWsUrl('JKR-ABCD', 't0k', { protocol: 'https:', hostname: 'game.example' }, '')).toBe('wss://game.example:8080/ws/JKR-ABCD?token=t0k');
-    expect(buildWsUrl('JKR-ABCD', 'a b', { protocol: 'http:', hostname: 'x' }, 'ws://gw:9000/')).toBe('ws://gw:9000/ws/JKR-ABCD?token=a%20b');
+    expect(buildWsUrl('JKR-ABCD', 't0k', { protocol: 'http:', host: 'localhost' }, '')).toBe('ws://localhost/ws/JKR-ABCD?token=t0k');
+    expect(buildWsUrl('JKR-ABCD', 't0k', { protocol: 'https:', host: 'localhost' }, '')).toBe('wss://localhost/ws/JKR-ABCD?token=t0k');
+    expect(buildWsUrl('JKR-ABCD', 't0k', { protocol: 'https:', host: 'game.example:8443' }, '')).toBe('wss://game.example:8443/ws/JKR-ABCD?token=t0k');
+    expect(buildWsUrl('JKR-ABCD', 't0k', { protocol: 'https:', hostname: 'game.example' }, '')).toBe('wss://game.example/ws/JKR-ABCD?token=t0k');
+    expect(buildWsUrl('JKR-ABCD', 'a b', { protocol: 'http:', host: 'x' }, 'wss://gw:9000/')).toBe('wss://gw:9000/ws/JKR-ABCD?token=a%20b');
   });
 
   it('computes exponential backoff with a cap', () => {

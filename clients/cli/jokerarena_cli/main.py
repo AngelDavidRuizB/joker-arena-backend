@@ -1,15 +1,28 @@
-"""jokerarena: cliente de terminal de JokerArena (Prototipo 2)."""
+"""jokerarena: cliente de terminal de JokerArena (Prototipo 3)."""
 import asyncio
 import json
+import ssl
 from typing import Optional
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
-from .api import CliError, Gateway, clear_session, gateway_url, load_session, save_session
+from .api import (
+    CliError,
+    Gateway,
+    clear_session,
+    gateway_url,
+    load_session,
+    save_session,
+    ws_ssl_context,
+    ws_url,
+)
 
-app = typer.Typer(help="JokerArena · cliente de terminal. Todo pasa por el API Gateway (JOKERARENA_GATEWAY).", no_args_is_help=True)
+app = typer.Typer(
+    help="JokerArena · cliente de terminal. Todo pasa por el borde HTTPS/WSS (JOKERARENA_GATEWAY, por defecto https://localhost; CA en JOKERARENA_CA).",
+    no_args_is_help=True,
+)
 rooms_app = typer.Typer(help="Salas del lobby.", no_args_is_help=True)
 app.add_typer(rooms_app, name="rooms")
 console = Console()
@@ -76,7 +89,7 @@ def rooms_create(bot: bool = typer.Option(True, "--bot/--solo"), target: int = 2
     def go():
         r = gw(auth=True).create_room(bot, target, difficulty)
         console.print(f"[bold green]✓[/] Sala [bold cyan]{r['room_code']}[/] creada ({r['mode']}, {r['difficulty']}, meta {r['target_score']:,}).")
-        console.print(f"  Juega en la web: http://localhost:3000/room/{r['room_code']}  ·  o mírala aquí: jokerarena watch {r['room_code']}")
+        console.print(f"  Juega en la web: {gateway_url()}/room/{r['room_code']}  ·  o mírala aquí: jokerarena watch {r['room_code']}")
     run(go)
 
 
@@ -143,10 +156,16 @@ def watch(code: str):
     if not s:
         console.print("[bold red]✗[/] No hay sesión. Ejecuta primero: jokerarena login <alias>")
         raise typer.Exit(1)
-    url = gateway_url().replace("http", "ws", 1) + f"/ws/{code.upper()}?token={s['token']}"
+
+    url = ws_url(code, s["token"])
+    try:
+        ssl_ctx = ws_ssl_context(url)
+    except CliError as exc:
+        console.print(f"[bold red]✗[/] {exc}")
+        raise typer.Exit(1)
 
     async def follow():
-        async with websockets.connect(url) as ws:
+        async with websockets.connect(url, ssl=ssl_ctx) as ws:
             async for raw in ws:
                 msg = json.loads(raw)
                 p, kind = msg.get("payload", {}), msg.get("type")
@@ -166,6 +185,12 @@ def watch(code: str):
         asyncio.run(follow())
     except KeyboardInterrupt:
         pass
+    except ssl.SSLError as exc:
+        console.print(
+            f"[bold red]✗[/] No se pudo verificar el certificado TLS del WebSocket ({exc}). "
+            "Genera la CA con 'bash scripts/gen_certs.sh' o indica su ruta en JOKERARENA_CA."
+        )
+        raise typer.Exit(1)
     except OSError as exc:
         console.print(f"[bold red]✗[/] No se pudo abrir el WebSocket: {exc}")
         raise typer.Exit(1)

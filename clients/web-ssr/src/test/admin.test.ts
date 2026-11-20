@@ -14,9 +14,18 @@ describe('consola de administración', () => {
     expect(toPutBody(3, values)).toEqual({ expected_version: 3, ...values });
   });
 
-  it('abre el radar por el gateway con el token en la query', () => {
-    expect(wsAdminUrl('a.b.c', { protocol: 'http:', hostname: 'localhost' })).toBe(
-      'ws://localhost:8080/admin/cluster/metrics?token=a.b.c',
+  it('abre el radar por el mismo origen (wss en https, ws en http) con el token en la query', () => {
+    expect(wsAdminUrl('a.b.c', { protocol: 'https:', host: 'localhost' }, '')).toBe(
+      'wss://localhost/admin/cluster/metrics?token=a.b.c',
+    );
+    expect(wsAdminUrl('a.b.c', { protocol: 'http:', host: 'localhost' }, '')).toBe(
+      'ws://localhost/admin/cluster/metrics?token=a.b.c',
+    );
+    expect(wsAdminUrl('a.b.c', { protocol: 'https:', host: 'localhost:8443' }, '')).toBe(
+      'wss://localhost:8443/admin/cluster/metrics?token=a.b.c',
+    );
+    expect(wsAdminUrl('a b', { protocol: 'https:', host: 'localhost' }, 'wss://gw:9000/')).toBe(
+      'wss://gw:9000/admin/cluster/metrics?token=a%20b',
     );
   });
 });
