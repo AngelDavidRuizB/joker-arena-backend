@@ -80,6 +80,21 @@ func (m *Memory) Outcome(matchID string) *room.MatchOutcome {
 	return nil
 }
 
+// SaveProgress stores the resumable state of a match.
+func (m *Memory) SaveProgress(_ context.Context, matchID string, p room.MatchProgress) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if mm, ok := m.matches[matchID]; ok && (mm.row.Progress == nil || mm.row.Progress.Seq < p.Seq) {
+		mm.row.Progress = &p
+	}
+	return nil
+}
+
+// OrphanMatches returns nothing: memory does not outlive the process, so there are no orphans.
+func (m *Memory) OrphanMatches(context.Context, time.Duration) ([]room.OrphanMatch, error) {
+	return nil, nil
+}
+
 // LatestMatch returns the most recent match of a room.
 func (m *Memory) LatestMatch(_ context.Context, roomCode string) (*MatchRow, error) {
 	m.mu.Lock()

@@ -12,10 +12,15 @@ class FakeStore:
     def __init__(self):
         self.raw, self.hands, self.matches = {}, {}, {}
         self.down = False
+        self.fail_next_hand = False
 
     def _g(self):
         if self.down:
             raise ConnectionError("mongo down")
+
+    async def seen(self, event_id):
+        self._g()
+        return event_id in self.raw
 
     async def save_raw(self, env):
         self._g()
@@ -25,6 +30,9 @@ class FakeStore:
         return True
 
     async def upsert_hand(self, doc):
+        if self.fail_next_hand:
+            self.fail_next_hand = False
+            raise ConnectionError("mongo down")
         self.hands[(doc["match_id"], doc["player_id"], doc["hand_number"])] = doc
 
     async def match_started(self, doc):
@@ -55,6 +63,17 @@ class FakeStore:
 def env(etype, payload, event_id=None):
     return {"event_id": event_id or str(uuid.uuid4()), "type": etype, "version": 1,
             "occurred_at": "2026-11-03T18:00:00Z", "producer": "test", "payload": payload}
+
+
+def test_a_failed_projection_is_not_lost_as_a_duplicate():
+    store = FakeStore()
+    event = env("game.hand.scored", {"match_id": "m1", "player_id": "p1", "hand_number": 1, "hand_type": "PAIR", "score": 10})
+    store.fail_next_hand = True
+    with pytest.raises(ConnectionError):
+        asyncio.run(project(store, event))
+    assert asyncio.run(project(store, event)) == "processed"
+    assert ("m1", "p1", 1) in store.hands
+    assert asyncio.run(project(store, event)) == "duplicate"
 
 
 def run(coro):

@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS game.matches (
     hands_played  INTEGER,
     host_won      BOOLEAN,
     end_reason    VARCHAR(32),
+    progress      JSONB,       -- estado reanudable tras reiniciar el motor (room.MatchProgress)
+    progress_at   TIMESTAMPTZ,
     created_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
     started_at    TIMESTAMPTZ,
     ended_at      TIMESTAMPTZ

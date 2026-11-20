@@ -41,13 +41,16 @@ async def project(store: TelemetryStore, envelope: dict) -> str:
         _need(payload, "match_id", "player_id", "hand_number", "hand_type", "score")
     elif etype in ("game.match.started", "game.match.ended"):
         _need(payload, "match_id", "room_code")
-    if not await store.save_raw(envelope):
+    if await store.seen(envelope["event_id"]):
         return "duplicate"
 
+    # Primero se proyecta y al final se registra el evento: si Mongo falla a mitad, el reintento
+    # no lo toma por duplicado. Las proyecciones son upserts, así que repetirlas es seguro.
     if etype == "game.hand.scored":
         await store.upsert_hand({**payload, "occurred_at": occurred, "event_id": envelope["event_id"]})
     elif etype == "game.match.started":
         await store.match_started({**payload, "started_at": occurred})
     elif etype == "game.match.ended":
         await store.match_ended({**payload, "ended_at": occurred})
+    await store.save_raw(envelope)
     return "processed"

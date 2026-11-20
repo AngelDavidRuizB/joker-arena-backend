@@ -3,6 +3,7 @@ package room
 import (
 	"context"
 	"crypto/rand"
+	"log"
 	"math/big"
 	"strings"
 	"sync"
@@ -59,8 +60,9 @@ func (m *Manager) Get(code string) (*Room, bool) {
 	return r, ok
 }
 
-// Reap stops and removes sessions without clients that were idle for longer than maxIdle
-// (or finished sessions idle for longer than finishedIdle). It returns how many were removed.
+// Reap stops and removes sessions without clients that were idle for longer than maxIdle,
+// closing their in-progress matches as abandoned, and does the same for matches left without
+// a session by an engine restart. It returns how many sessions were removed.
 func (m *Manager) Reap(maxIdle time.Duration) int {
 	now := time.Now().UTC()
 	var stale []*Room
@@ -73,9 +75,43 @@ func (m *Manager) Reap(maxIdle time.Duration) int {
 	}
 	m.mu.Unlock()
 	for _, r := range stale {
+		r.abandon()
 		r.Stop()
 	}
+	m.closeOrphans(maxIdle)
 	return len(stale)
+}
+
+// closeOrphans abandons stored IN_PROGRESS matches that have no live session.
+func (m *Manager) closeOrphans(maxIdle time.Duration) {
+	finder, ok := m.persister.(OrphanFinder)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	orphans, err := finder.OrphanMatches(ctx, maxIdle)
+	if err != nil {
+		log.Printf("[WARN] listing orphan matches failed: %v", err)
+		return
+	}
+	for _, o := range orphans {
+		if _, live := m.Get(o.RoomCode); live {
+			continue
+		}
+		progress := o.Progress
+		if progress == nil {
+			progress = &MatchProgress{HandsLeft: InitialHands, DiscardsLeft: InitialDiscards,
+				BotHandsLeft: InitialHands, BotDiscardsLeft: InitialDiscards}
+		}
+		r := m.Create(Options{MatchID: o.MatchID, Code: o.RoomCode, TargetScore: o.TargetScore, WithBot: o.WithBot,
+			Host: o.Host, Difficulty: o.Difficulty, Resume: progress})
+		r.abandon()
+		m.mu.Lock()
+		delete(m.rooms, r.Code())
+		m.mu.Unlock()
+		r.Stop()
+	}
 }
 
 // StartJanitor periodically reaps idle sessions until ctx is cancelled.

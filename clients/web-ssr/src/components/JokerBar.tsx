@@ -1,6 +1,7 @@
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { JOKERS } from '../lib/cards';
-import type { JokerMeta } from '../lib/cards';
+import { JOKERS, jokerDescription } from '../lib/cards';
+import type { JokerMeta, LiveJokers } from '../lib/cards';
 
 const TONE: Record<JokerMeta['color'], { border: string; text: string; glow: string }> = {
   cyan: { border: 'border-neon-cyan/50', text: 'text-neon-cyan', glow: 'shadow-neon-cyan' },
@@ -17,6 +18,14 @@ interface JokerBarProps {
 
 /** The three canonical Jokers, evaluated strictly in this order. The active one pulses. */
 export function JokerBar({ activeId, owned }: JokerBarProps) {
+  const [live, setLive] = useState<LiveJokers | null>(null);
+  useEffect(() => {
+    fetch('/api/game/ruleset')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => setLive(b?.ruleset?.jokers ?? null))
+      .catch(() => setLive(null));
+  }, [owned]);
+
   return (
     <section aria-label="Jokers activos" className="grid gap-3 sm:grid-cols-3">
       {JOKERS.filter((j) => owned.includes(j.id)).map((j, i) => {
@@ -44,7 +53,7 @@ export function JokerBar({ activeId, owned }: JokerBarProps) {
             </span>
             <div className="min-w-0">
               <h3 className={`font-display text-xs font-bold uppercase tracking-widest ${tone.text}`}>{j.name}</h3>
-              <p className="text-sm leading-tight text-slate-300">{j.description}</p>
+              <p className="text-sm leading-tight text-slate-300">{jokerDescription(j, live)}</p>
             </div>
           </motion.div>
         );

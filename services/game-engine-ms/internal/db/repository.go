@@ -6,6 +6,7 @@ package db
 import (
 	"context"
 	"errors"
+	"time"
 
 	"game-engine-ms/internal/room"
 )
@@ -29,6 +30,7 @@ type MatchRow struct {
 	MatchID  string
 	RoomCode string
 	Status   string
+	Progress *room.MatchProgress // nil until the first action is saved
 }
 
 // Repository is the engine's storage port. It satisfies room.Persister plus the optional
@@ -40,13 +42,17 @@ type Repository interface {
 	RecordOutcome(ctx context.Context, o room.MatchOutcome) error
 	// LatestMatch returns the most recent match of a room (to resume after a restart).
 	LatestMatch(ctx context.Context, roomCode string) (*MatchRow, error)
+	SaveProgress(ctx context.Context, matchID string, p room.MatchProgress) error
+	OrphanMatches(ctx context.Context, idle time.Duration) ([]room.OrphanMatch, error)
 	Ping(ctx context.Context) error
 	Mode() string
 	Close()
 }
 
 var (
-	_ room.Persister       = Repository(nil)
-	_ room.MatchCreator    = Repository(nil)
-	_ room.OutcomeRecorder = Repository(nil)
+	_ room.Persister        = Repository(nil)
+	_ room.MatchCreator     = Repository(nil)
+	_ room.OutcomeRecorder  = Repository(nil)
+	_ room.ProgressRecorder = Repository(nil)
+	_ room.OrphanFinder     = Repository(nil)
 )

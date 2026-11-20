@@ -13,6 +13,7 @@ from pymongo.errors import DuplicateKeyError
 
 
 class TelemetryStore(Protocol):
+    async def seen(self, event_id: str) -> bool: ...
     async def save_raw(self, envelope: dict) -> bool: ...
     async def upsert_hand(self, doc: dict) -> None: ...
     async def match_started(self, doc: dict) -> None: ...
@@ -41,6 +42,9 @@ class MongoStore:
         await self.db.hand_events.create_index([("occurred_at", DESCENDING)])
         await self.db.match_summaries.create_index("match_id", unique=True)
         await self.db.match_summaries.create_index([("started_at", DESCENDING)])
+
+    async def seen(self, event_id: str) -> bool:
+        return await self.db.events.find_one({"event_id": event_id}, {"_id": 1}) is not None
 
     async def save_raw(self, envelope: dict) -> bool:
         try:

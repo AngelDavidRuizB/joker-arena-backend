@@ -1,7 +1,7 @@
 import { handName } from './cards';
 import type { HandScored } from './types';
 
-export type CascadeStepKind = 'hand' | 'cards' | 'banner' | 'joker' | 'duo' | 'total';
+export type CascadeStepKind = 'hand' | 'cards' | 'banner' | 'joker' | 'duo' | 'happy' | 'total';
 
 export interface CascadeStep {
   key: string;
@@ -19,7 +19,8 @@ export interface CascadeStep {
 
 /**
  * Turns the server's HAND_SCORED audit into the ordered animation steps of the scoring
- * cascade: hand base -> card chips -> Banner -> Joker Clásico -> The Duo -> Chips x Mult.
+ * cascade: hand base -> card chips -> Banner -> Joker Clásico -> The Duo -> Happy Hour (only
+ * when active) -> Chips x Mult.
  * It only presents numbers computed by the server; the last step always equals `score`.
  */
 export function buildCascade(h: HandScored): CascadeStep[] {
@@ -28,6 +29,7 @@ export function buildCascade(h: HandScored): CascadeStep[] {
   const classic = joker('joker');
   const duo = joker('the_duo');
   const scoredCards = h.cards_played.filter((c) => c.scored).length;
+  const disabled = (j?: { enabled?: boolean }) => j?.enabled === false;
 
   let chips = h.base_chips;
   let mult = h.base_mult;
@@ -55,14 +57,17 @@ export function buildCascade(h: HandScored): CascadeStep[] {
   });
 
   const bannerChips = banner?.chips_added ?? 0;
+  const discards = h.discards_left;
   chips += bannerChips;
   steps.push({
     key: 'banner',
     kind: 'banner',
     title: 'Banner',
     detail: banner?.triggered
-      ? `+30 fichas × ${h.discards_left} descartes restantes = +${bannerChips}`
-      : 'Sin descartes restantes: +0 fichas',
+      ? `+${bannerChips / discards} fichas × ${discards} ${discards === 1 ? 'descarte restante' : 'descartes restantes'} = +${bannerChips}`
+      : disabled(banner)
+        ? 'Desactivado por LiveOps: +0 fichas'
+        : 'Sin descartes restantes: +0 fichas',
     chips,
     mult,
     jokerId: 'banner',
@@ -75,7 +80,7 @@ export function buildCascade(h: HandScored): CascadeStep[] {
     key: 'joker',
     kind: 'joker',
     title: 'Joker Clásico',
-    detail: `+${classicMult} Mult`,
+    detail: disabled(classic) ? 'Desactivado por LiveOps: +0 Mult' : `+${classicMult} Mult`,
     chips,
     mult,
     jokerId: 'joker',
@@ -88,12 +93,30 @@ export function buildCascade(h: HandScored): CascadeStep[] {
     key: 'duo',
     kind: 'duo',
     title: 'The Duo',
-    detail: duo?.triggered ? `La mano contiene una pareja: Mult × ${factor}` : 'Sin pareja: Mult × 1',
+    detail: duo?.triggered
+      ? `La mano contiene una pareja: Mult × ${factor}`
+      : disabled(duo)
+        ? 'Desactivado por LiveOps: Mult × 1'
+        : 'Sin pareja: Mult × 1',
     chips,
     mult,
     jokerId: 'the_duo',
     triggered: !!duo?.triggered,
   });
+
+  if (h.final_mult !== mult) {
+    const happyFactor = h.final_mult / mult;
+    mult = h.final_mult;
+    steps.push({
+      key: 'happy',
+      kind: 'happy',
+      title: 'Happy Hour',
+      detail: `Multiplicador global: Mult × ${happyFactor}`,
+      chips,
+      mult,
+      triggered: true,
+    });
+  }
 
   steps.push({
     key: 'total',
@@ -115,5 +138,7 @@ export function formulaText(h: HandScored): string {
   const classic = h.jokers.find((j) => j.id === 'joker')?.mult_added ?? 0;
   const duo = h.jokers.find((j) => j.id === 'the_duo');
   const factor = duo?.triggered ? duo.mult_factor : 1;
-  return `(${h.base_chips} + ${h.card_chips} + ${bannerChips}) × ((${h.base_mult} + ${classic}) × ${factor}) = ${h.final_chips} × ${h.final_mult} = ${h.score}`;
+  const beforeHappy = (h.base_mult + classic) * factor;
+  const happy = h.final_mult !== beforeHappy ? ` × ${h.final_mult / beforeHappy}` : '';
+  return `(${h.base_chips} + ${h.card_chips} + ${bannerChips}) × ((${h.base_mult} + ${classic}) × ${factor}${happy}) = ${h.final_chips} × ${h.final_mult} = ${h.score}`;
 }

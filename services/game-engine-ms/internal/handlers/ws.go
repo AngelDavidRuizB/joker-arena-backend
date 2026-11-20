@@ -153,13 +153,14 @@ func (h *Handler) getOrCreateRoom(ctx context.Context, code string, player room.
 		return nil, room.ErrCodeMatchFinished, "this match has already finished"
 	}
 
-	// Resume the match id after an engine restart; otherwise start a new match.
+	// After an engine restart continue the match (scores and counters); otherwise start a new one.
 	matchID := events.NewEventID()
+	var resume *room.MatchProgress
 	if row, err := h.d.Repo.LatestMatch(lctx, code); err == nil {
 		if row.Status == db.StatusFinished {
 			return nil, room.ErrCodeMatchFinished, "this match has already finished"
 		}
-		matchID = row.MatchID
+		matchID, resume = row.MatchID, row.Progress
 	}
 
 	host := room.PlayerInfo{ID: info.CreatedBy, Alias: info.HostAlias()}
@@ -173,6 +174,7 @@ func (h *Handler) getOrCreateRoom(ctx context.Context, code string, player room.
 		WithBot:     info.Mode != "pvp",
 		Difficulty:  info.Difficulty,
 		Host:        host,
+		Resume:      resume,
 	})
 	return s, "", ""
 }

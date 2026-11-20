@@ -10,6 +10,9 @@ import (
 	"game-engine-ms/internal/poker"
 )
 
+// ReasonAbandoned ends a match whose players left and never came back.
+const ReasonAbandoned = "ABANDONED"
+
 // Routing keys published by the engine (contracts/events.md).
 const (
 	EventMatchStarted = "game.match.started"
@@ -51,6 +54,41 @@ type MatchOutcome struct {
 	BotScore    int
 	HandsPlayed int
 	Reason      string
+}
+
+// MatchProgress is the resumable state of a match. Cards are not part of it: after an engine
+// restart the match keeps its scores and counters and deals a new hand.
+type MatchProgress struct {
+	Seq             int `json:"seq"` // grows with every save, so late writes cannot go backwards
+	Score           int `json:"score"`
+	HandsLeft       int `json:"hands_left"`
+	DiscardsLeft    int `json:"discards_left"`
+	HandNumber      int `json:"hand_number"`
+	BotScore        int `json:"bot_score"`
+	BotHandsLeft    int `json:"bot_hands_left"`
+	BotDiscardsLeft int `json:"bot_discards_left"`
+	BotHandNumber   int `json:"bot_hand_number"`
+}
+
+// ProgressRecorder is an optional extension of Persister that stores MatchProgress.
+type ProgressRecorder interface {
+	SaveProgress(ctx context.Context, matchID string, p MatchProgress) error
+}
+
+// OrphanMatch is a match still IN_PROGRESS in storage that may have no live session.
+type OrphanMatch struct {
+	MatchID     string
+	RoomCode    string
+	Host        PlayerInfo
+	WithBot     bool
+	TargetScore int
+	Difficulty  string
+	Progress    *MatchProgress
+}
+
+// OrphanFinder is an optional extension of Persister that lists matches idle for too long.
+type OrphanFinder interface {
+	OrphanMatches(ctx context.Context, idle time.Duration) ([]OrphanMatch, error)
 }
 
 // OutcomeRecorder is an optional extension of Persister that stores final scores.
@@ -111,6 +149,36 @@ func (r *Room) decideBot(req BotRequest) (string, []int) {
 	sorted := append([]int(nil), idx...)
 	sort.Ints(sorted)
 	return action, sorted
+}
+
+// saveProgressLocked persists the resumable state. Caller holds mu.
+func (r *Room) saveProgressLocked() {
+	rec, ok := r.persister.(ProgressRecorder)
+	if !ok {
+		return
+	}
+	r.progressSeq++
+	p := MatchProgress{Seq: r.progressSeq, Score: r.score, HandsLeft: r.handsLeft, DiscardsLeft: r.discardsLeft,
+		HandNumber: r.handNumber, BotScore: r.botScore, BotHandsLeft: r.botHandsLeft,
+		BotDiscardsLeft: r.botDiscardsLeft, BotHandNumber: r.botHandNumber}
+	id := r.opts.MatchID
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := rec.SaveProgress(ctx, id, p); err != nil {
+			log.Printf("[WARN] persist progress of %s failed: %v", id, err)
+		}
+	}()
+}
+
+// abandon closes an in-progress match nobody came back to, so the lobby, the ranking and
+// telemetry do not keep it open forever. Only call it on a session without clients.
+func (r *Room) abandon() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.status == models.StatusInProgress {
+		r.finishLocked(false, ReasonAbandoned)
+	}
 }
 
 func (r *Room) rules() poker.Ruleset {
