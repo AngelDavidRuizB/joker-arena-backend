@@ -29,7 +29,7 @@ Sin broker el juego sigue funcionando: los eventos se guardan en una cola en mem
 
 ## Variables de entorno
 
-`PORT`, `POSTGRES_URL`, `RABBITMQ_URL`, `AUTH_JWKS_URL`, `ROOMS_LOBBY_URL`, `LIVEOPS_URL`, `BOT_AI_URL`, `ALLOWED_ORIGINS`, `STORAGE_MODE` (`postgres` | `memory`).
+`PORT`, `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_SSLMODE` (la URL se compone en código con `url.UserPassword`, admite `@` en la contraseña; `POSTGRES_URL` se acepta como override explícito), `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_USER`, `RABBITMQ_PASSWORD` (`RABBITMQ_URL` como override), `AUTH_JWKS_URL`, `ROOMS_LOBBY_URL`, `LIVEOPS_URL`, `BOT_AI_URL`, `ALLOWED_ORIGINS`, `STORAGE_MODE` (`postgres` | `memory`).
 
 ## Pruebas
 
