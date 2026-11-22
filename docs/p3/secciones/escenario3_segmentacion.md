@@ -77,56 +77,113 @@ El patrón aísla las cargas de trabajo de acuerdo a su función de negocio y cr
   - **`docker-compose.debug.yml`**: Archivo complementario para desarrolladores que expone los puertos de depuración de Neo4j (`7474`, `7687`), RabbitMQ (`15672`), Postgres (`5432`), Redis (`6379`), Mongo (`27017`), Gateway (`8080`) y Web (`3000`) cuando se requiere inspeccionar bases de datos o consolas en entorno local (`docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d`).
   - **`gateway/compose.yml` y `clients/web-ssr/compose.yml`**: Conecta ambos servicios a `edge-net` (para comunicarse con el Reverse Proxy) y a `app-net`. Elimina la publicación de puertos de host (`8080` y `3000`).
   - **`services/bot-ai-ms/compose.yml`**: Asigna el servicio únicamente a `app-net`.
-  - **`services/*/compose.yml`**: Asigna a cada microservicio estrictamente las redes de datos y mensajería que consume en su lógica de negocio.
+  - **`services/*/compose.yml`**: Asigna a cada microservicio estrictamente las redes de datos y mensajería que consume en su lógica de negocio sin duplicar definiciones de redes.
   - **`.env.example`**: Limpia las variables de puertos directos al host (`POSTGRES_PORT`, `MONGO_PORT`, `NEO4J_HTTP_PORT`, `RABBITMQ_MGMT_PORT`), documentando que la exposición de puertos ahora se gestiona de forma centralizada por el Reverse Proxy y el perfil de depuración.
 
 ## Evidencia
 
-### 1. Intento de movimiento lateral no autorizado (Aislamiento efectivo)
-Al intentar resolver o conectar desde `jokerarena-bot-ai-ms` hacia `jokerarena-postgres`:
+Las siguientes pruebas fueron ejecutadas sobre el clúster activo en Linux Mint, con los 15 contenedores en estado `Up (healthy)` y las 7 redes Docker activas:
+
+### 1. Estado de los contenedores en ejecución (`docker ps`)
+
+```text
+CONTAINER ID   IMAGE                                        STATUS                    PORTS                                    NAMES
+1c6df8143378   jokerarena-jokerarena-leaderboard-stats-ms   Up 4 minutes (healthy)    8086/tcp                                 jokerarena-leaderboard-stats-ms
+bdbd7786b591   jokerarena-jokerarena-telemetry-ms           Up 5 minutes (healthy)    8085/tcp                                 jokerarena-telemetry-ms
+bc01ace1c474   jokerarena-jokerarena-auth-identity-ms       Up 4 minutes (healthy)    8082/tcp                                 jokerarena-auth-identity-ms
+05a5fcc9116d   jokerarena-rooms-lobby-ms                    Up 4 minutes (healthy)    8083/tcp                                 jokerarena-rooms-lobby-ms
+1d9c9a729254   jokerarena-jokerarena-liveops-rules-ms       Up 12 seconds (healthy)   8087/tcp                                 jokerarena-liveops-rules-ms
+a8235357dded   jokerarena-jokerarena-game-engine-ms         Up 4 minutes (healthy)    8081/tcp                                 jokerarena-game-engine-ms
+049d1fa51898   jokerarena-jokerarena-cluster-monitor-ms     Up 5 minutes (healthy)    8088/tcp                                 jokerarena-cluster-monitor-ms
+d0489ab32d9e   jokerarena-jokerarena-web-ssr                Up 5 minutes (healthy)    3000/tcp                                 jokerarena-web-ssr
+47103f6ea9b7   rabbitmq:3.13-management-alpine              Up 5 minutes (healthy)    4369/tcp, 5671-5672/tcp, 15672/tcp       jokerarena-rabbitmq
+91b3ec87a075   postgres:16-alpine                           Up 5 minutes (healthy)    5432/tcp                                 jokerarena-postgres
+7d17cb8f4853   redis:7.4-alpine                             Up 5 minutes (healthy)    6379/tcp                                 jokerarena-redis
+7f7d8c7d18fb   mongo:7                                      Up 5 minutes (healthy)    27017/tcp                                jokerarena-mongo
+d40f66f2328f   jokerarena-jokerarena-gateway                Up 5 minutes (healthy)    80/tcp, 8080/tcp                         jokerarena-gateway
+cb794d30f950   neo4j:5.26-community                         Up 5 minutes (healthy)    7473-7474/tcp, 7687/tcp                  jokerarena-neo4j
+f2a606c83725   jokerarena-jokerarena-bot-ai-ms              Up 5 minutes (healthy)    8084/tcp                                 jokerarena-bot-ai-ms
+```
+*Interpretación:* Los 15 contenedores están operando de forma saludable (`healthy`). Ningún puerto se encuentra expuesto hacia interfaces externas (`0.0.0.0:...`), certificando el cierre perimetral.
+
+---
+
+### 2. Intento de movimiento lateral no autorizado (Aislamiento del Bot IA)
+
+Al intentar resolver la dirección IP de PostgreSQL desde el contenedor de `jokerarena-bot-ai-ms`:
 
 ```bash
-$ docker exec jokerarena-bot-ai-ms getent hosts jokerarena-postgres
-# Retorno vacío (código de salida 2).
+juan@juan-VirtualBox:~/Escritorio/joker-arena-backend$ docker exec jokerarena-bot-ai-ms getent hosts jokerarena-postgres
 ```
-```bash
-$ docker exec jokerarena-bot-ai-ms nc -zv jokerarena-postgres 5432
-nc: bad address 'jokerarena-postgres'
-```
-*Interpretación:* El demonio de Docker y el DNS interno no resuelven la dirección IP de PostgreSQL para el bot porque no comparten ninguna red en común. El contenedor comprometido no puede descubrir ni atacar la base de datos.
+* **Resultado:** **Retorno vacío** (código de salida 2).
+* **Interpretación:** El DNS interno embebido de Docker no resuelve el hostname `jokerarena-postgres` para el contenedor `bot-ai-ms` porque no comparten la red `pg-net`. Un atacante que comprometa el servicio de Bot no puede descubrir ni comunicarse con la base de datos relacional.
 
-### 2. Acceso legítimo autorizado
-Al consultar la conectividad desde un microservicio con autorización de persistencia (`jokerarena-rooms-lobby-ms`):
+---
 
-```bash
-$ docker exec jokerarena-rooms-lobby-ms getent hosts jokerarena-postgres
-172.22.0.2 jokerarena-postgres
-```
-*Interpretación:* El microservicio autorizado resuelve la IP de la base de datos en su segmento `pg-net` y establece conexión de datos sin inconvenientes.
+### 3. Acceso legítimo autorizado (Lobby hacia PostgreSQL)
 
-### 3. Verificación de puertos cerrados en el Host
-Al escanear los puertos de bases de datos desde la máquina host:
+Al consultar la conectividad desde un microservicio con acceso autorizado a persistencia (`jokerarena-rooms-lobby-ms`):
 
 ```bash
-$ curl -I http://localhost:5432
-curl: (7) Failed to connect to localhost port 5432: Connection refused
-
-$ curl -I http://localhost:27017
-curl: (7) Failed to connect to localhost port 27017: Connection refused
-
-$ curl -I http://localhost:7474
-curl: (7) Failed to connect to localhost port 7474: Connection refused
+juan@juan-VirtualBox:~/Escritorio/joker-arena-backend$ docker exec jokerarena-rooms-lobby-ms getent hosts jokerarena-postgres
+172.20.0.2     jokerarena-postgres
 ```
-*Interpretación:* Ninguna base de datos ni servicio interno es alcanzable directamente desde fuera del clúster Docker.
+* **Resultado:** Resuelve exitosamente la IP interna asignada `172.20.0.2`.
+* **Interpretación:** El servicio legítimo resuelve y accede a la base de datos sin restricciones a través de la red `pg-net`.
+
+---
+
+### 4. Topología de Redes Creada (`docker network ls`)
+
+Inspección de las redes creadas por Docker Compose:
+
+```bash
+juan@juan-VirtualBox:~/Escritorio/joker-arena-backend$ docker network ls
+NETWORK ID   NAME         DRIVER    SCOPE
+4fcfd7b228d1 app-net      bridge    local
+d2ecd4724bb4 bridge       bridge    local
+68ee4a8115bf broker-net   bridge    local
+43f146d76216 edge-net     bridge    local
+2656604ceb07 host         host      local
+c24efe41f495 mongo-net    bridge    local
+4e942bcd6713 neo4j-net    bridge    local
+795b2fce8b16 none         null      local
+278cad2df858 pg-net       bridge    local
+165b277ec3fc redis-net    bridge    local
+```
+* **Interpretación:** Existen exactamente las 7 redes definidas en la arquitectura: `edge-net`, `app-net`, `broker-net`, `pg-net`, `redis-net`, `mongo-net`, `neo4j-net`.
+
+---
+
+### 5. Verificación de Puertos de Bases de Datos Cerrados al Host
+
+Comprobación desde la máquina anfitriona intentando conectar directamente a los puertos de PostgreSQL (`5432`), Neo4j (`7474`) y MongoDB (`27017`):
+
+```bash
+juan@juan-VirtualBox:~/Escritorio/joker-arena-backend$ curl -I http://localhost:5432
+curl -I http://localhost:7474
+curl: (7) Failed to connect to localhost port 5432 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to localhost port 7474 after 0 ms: Couldn't connect to server
+
+juan@juan-VirtualBox:~/Escritorio/joker-arena-backend$ curl -I http://localhost:27017
+curl: (7) Failed to connect to localhost port 27017 after 0 ms: Couldn't connect to server
+```
+* **Resultado:** `Failed to connect / Couldn't connect to server` (Connection refused) en el 100 % de las peticiones.
+* **Interpretación:** Ningún almacén de datos ni microservicio interno es accesible directamente desde el exterior. La superficie de ataque quedó blindada.
+
+---
 
 ## Resultado obtenido
 
-Se cumplió al 100 % la medida de la respuesta:
-- El 100 % de los intentos de conexión no permitidos por la matriz de segmentación fallan (`0` resoluciones DNS y `0` paquetes TCP transferidos hacia redes no autorizadas).
-- Los microservicios legítimos continúan operando con total normalidad a través de sus redes dedicadas (`app-net`, `pg-net`, `broker-net`, etc.).
-- La superficie de ataque expuesta al host se redujo a los puertos `80` y `443` del Reverse Proxy.
+Se cumplió al 100 % la medida de la respuesta definida en el escenario de arquitectura:
+- **Tasa de fallo en conexiones no autorizadas:** 100 % (el bot no resuelve `jokerarena-postgres`).
+- **Conectividad legítima:** 100 % operativa (Lobby resuelve `172.20.0.2` y todos los 15 contenedores operan en estado `healthy`).
+- **Exposición externa:** 0 puertos de bases de datos o servicios internos publicados hacia el host.
+
+---
 
 ## Limitaciones o cambios respecto al plan
 
-1. **Orden de integración respecto al Reverse Proxy:** Como se estipuló en el plan de integración (Sección 4), la segmentación de redes retira el puerto `8080` del Gateway y el puerto `3000` de la Web. Por tanto, en el despliegue final del clúster se requiere la presencia previa del Reverse Proxy de Esteban (puerto `80`/`443`). Para pruebas locales aisladas previas a la fusión dominical, se utiliza `docker-compose.debug.yml`.
-2. **Conservación de nombres de volúmenes persistentes:** Todos los volúmenes del clúster mantuvieron estrictamente sus identificadores originales (`p2-pgdata`, `p2-mongodata`, `p2-redisdata`, `p2-neo4jdata`, `p2-rabbitdata`) garantizando que ningún dato de prueba existente se corrompa ni se pierda durante la migración de red.
+1. **Compatibilidad de la directiva `include:` en Docker Compose:** Se detectó que Docker Compose v2.20+ no permite que los archivos secundarios (`services/*/compose.yml`) vuelvan a declarar en un bloque raíz `networks:` las redes que ya fueron creadas por el archivo padre (`docker-compose.p2.yml`). Se ajustó la configuración para que cada servicio simplemente referencie la red en su propiedad `networks: [...]`, resolviendo la advertencia `conflicts with imported resource`.
+2. **Uso de `docker-compose.debug.yml`:** Para facilitar la depuración local del equipo sin comprometer las políticas de seguridad de producción, se implementó el archivo opcional `docker-compose.debug.yml`, el cual reabre temporalmente las consolas administrativas de Neo4j y RabbitMQ únicamente cuando el desarrollador lo invoque explícitamente.
+3. **Persistencia de volúmenes:** Se conservaron íntegramente los identificadores de volúmenes de datos (`p2-pgdata`, `p2-mongodata`, `p2-redisdata`, `p2-neo4jdata`, `p2-rabbitdata`) garantizando que los datos históricos y esquemas de los microservicios se mantengan intactos.
