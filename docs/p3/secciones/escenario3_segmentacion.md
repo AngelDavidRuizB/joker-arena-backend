@@ -84,6 +84,9 @@ El patrón aísla las cargas de trabajo de acuerdo a su función de negocio y cr
 
 Las siguientes pruebas fueron ejecutadas sobre el clúster activo en Linux Mint, con los 15 contenedores en estado `Up (healthy)` y las 7 redes Docker activas:
 
+![Captura de Evidencia - Pruebas de Segmentación y Conectividad](../evidencias/escenario3_segmentacion.jpg)  
+*Figura 1: Captura de pantalla de la terminal en Linux Mint evidenciando el aislamiento del bot, la resolución legítima del lobby, el listado de las 7 redes y los puertos bloqueados al host.*
+
 ### 1. Estado de los contenedores en ejecución (`docker ps`)
 
 ```text
