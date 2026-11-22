@@ -10,7 +10,3 @@ services:
       PORT: 8084
     networks:
       - app-net
-
-networks:
-  app-net:
-    name: app-net

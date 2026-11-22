@@ -26,15 +26,5 @@ services:
       - redis-net
       - broker-net
 
-networks:
-  app-net:
-    name: app-net
-  pg-net:
-    name: pg-net
-  redis-net:
-    name: redis-net
-  broker-net:
-    name: broker-net
-
 volumes:
   p2-authkeys:

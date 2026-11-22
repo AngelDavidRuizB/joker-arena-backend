@@ -9,9 +9,3 @@ services:
     networks:
       - edge-net
       - app-net
-
-networks:
-  edge-net:
-    name: edge-net
-  app-net:
-    name: app-net
