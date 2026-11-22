@@ -1,4 +1,6 @@
 # bot-ai-ms (Juan David Suárez Coronado) · incluido desde docker-compose.p2.yml
+# Escenario 3: Contenedor conectado únicamente a app-net (principio de mínimo privilegio).
+# Aislado de bases de datos (pg-net, redis-net, mongo-net, neo4j-net) y colas (broker-net).
 services:
   jokerarena-bot-ai-ms:
     build: .
@@ -6,8 +8,9 @@ services:
     restart: unless-stopped
     environment:
       PORT: 8084
-    networks: [jokerarena-net]
+    networks:
+      - app-net
 
 networks:
-  jokerarena-net:
-    name: jokerarena-net
+  app-net:
+    name: app-net

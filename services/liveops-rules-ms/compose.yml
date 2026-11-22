@@ -16,8 +16,18 @@ services:
         condition: service_healthy
       jokerarena-rabbitmq:
         condition: service_healthy
-    networks: [jokerarena-net]
+    networks:
+      - app-net
+      - pg-net
+      - redis-net
+      - broker-net
 
 networks:
-  jokerarena-net:
-    name: jokerarena-net
+  app-net:
+    name: app-net
+  pg-net:
+    name: pg-net
+  redis-net:
+    name: redis-net
+  broker-net:
+    name: broker-net

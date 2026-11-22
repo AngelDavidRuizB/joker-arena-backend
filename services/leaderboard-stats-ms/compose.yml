@@ -31,8 +31,17 @@ services:
       retries: 5
       start_period: 15s
     networks:
-      - jokerarena-net
+      - app-net
+      - neo4j-net
+      - redis-net
+      - broker-net
 
 networks:
-  jokerarena-net:
-    name: jokerarena-net
+  app-net:
+    name: app-net
+  neo4j-net:
+    name: neo4j-net
+  redis-net:
+    name: redis-net
+  broker-net:
+    name: broker-net

@@ -1,0 +1,36 @@
+# ==============================================================================
+# JokerArena - Modo Depuración Local (Opcional)
+# Uso: docker compose -f docker-compose.p2.yml -f docker-compose.debug.yml up -d
+# Permite exponer temporalmente las interfaces de gestión y bases de datos en localhost.
+# ==============================================================================
+name: jokerarena
+
+services:
+  jokerarena-neo4j:
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+
+  jokerarena-rabbitmq:
+    ports:
+      - "15672:15672"
+
+  jokerarena-postgres:
+    ports:
+      - "5432:5432"
+
+  jokerarena-redis:
+    ports:
+      - "6379:6379"
+
+  jokerarena-mongo:
+    ports:
+      - "27017:27017"
+
+  jokerarena-gateway:
+    ports:
+      - "8080:8080"
+
+  jokerarena-web-ssr:
+    ports:
+      - "3000:3000"
