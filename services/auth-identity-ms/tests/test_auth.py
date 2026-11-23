@@ -73,6 +73,41 @@ class FakeSessions:
         pass
 
 
+class FakeThrottle:
+    """Bloqueo por intentos fallidos en memoria (sustituye a Redis en las pruebas)."""
+
+    def __init__(self):
+        self.failures = {}
+        self.locks = {}
+        self.down = False
+
+    def _guard(self):
+        if self.down:
+            raise ConnectionError("redis down")
+
+    async def remaining_lock(self, alias):
+        self._guard()
+        return self.locks.get(alias.lower(), 0)
+
+    async def register_failure(self, alias, max_attempts, lockout_seconds):
+        self._guard()
+        key = alias.lower()
+        self.failures[key] = self.failures.get(key, 0) + 1
+        if self.failures[key] >= max_attempts:
+            self.failures[key] = 0
+            self.locks[key] = lockout_seconds
+            return 0
+        return max_attempts - self.failures[key]
+
+    async def clear(self, alias):
+        self._guard()
+        self.failures.pop(alias.lower(), None)
+        self.locks.pop(alias.lower(), None)
+
+    async def ping(self):
+        self._guard()
+
+
 class FakePublisher:
     def __init__(self):
         self.events = []
@@ -228,4 +263,90 @@ def test_verify_endpoint_for_the_gateway(ctx):
     forbidden = client.get("/auth/verify", headers={"Authorization": f"Bearer {player['token']}", "X-Required-Role": "admin"})
     assert forbidden.status_code == 403
     assert client.get("/auth/verify").status_code == 401
+
+
+
+# ------------------------------------------------------------------------------
+# Bloqueo por intentos fallidos y vigencia del token de admin
+# ------------------------------------------------------------------------------
+@pytest.fixture
+def ctx_throttle():
+    """App con limitador de intentos (5 fallos → 15 min) y token admin de 30 min."""
+    cfg = Settings(admin_password=ADMIN_PASSWORD, token_ttl_seconds=12 * 3600,
+                   admin_token_ttl_seconds=30 * 60, max_failed_attempts=5, lockout_minutes=15)
+    players, sessions, pub, throttle = FakePlayers(), FakeSessions(), FakePublisher(), FakeThrottle()
+    app = create_app(Services(players, sessions, pub, KEY, cfg, throttle), cfg)
+    with TestClient(app) as client:
+        yield client, throttle
+
+
+def test_five_failed_logins_lock_the_account_for_15_minutes(ctx_throttle):
+    client, throttle = ctx_throttle
+    assert register(client, "Ana").status_code == 201
+    for left in (4, 3, 2):
+        r = login(client, "Ana", "mala-clave")
+        assert r.status_code == 401 and f"Te quedan {left} intentos" in r.json()["message"]
+    last = login(client, "Ana", "mala-clave")
+    assert last.status_code == 401 and "Te queda 1 intento." in last.json()["message"]
+    locked = login(client, "Ana", "mala-clave")
+    assert locked.status_code == 423 and locked.json()["error"] == "account_locked"
+    assert "15 minutos" in locked.json()["message"]
+    assert locked.headers["Retry-After"] == "900"
+    # Bloqueada: ni siquiera con la contraseña correcta
+    assert login(client, "Ana").status_code == 423
+    assert throttle.locks["ana"] == 900
+
+
+def test_failed_admin_password_in_register_also_counts(ctx_throttle):
+    client, _ = ctx_throttle
+    for _ in range(4):
+        assert register(client, "admin", "mala-admin").status_code == 401
+    assert register(client, "admin", "mala-admin").status_code == 423
+    assert register(client, "admin", ADMIN_PASSWORD).status_code == 423
+    assert login(client, "admin", ADMIN_PASSWORD).status_code == 423
+
+
+def test_successful_login_clears_the_failed_attempts(ctx_throttle):
+    client, throttle = ctx_throttle
+    assert register(client, "Beto").status_code == 201
+    for _ in range(4):
+        assert login(client, "Beto", "mala-clave").status_code == 401
+    assert login(client, "Beto").status_code == 200
+    assert throttle.failures.get("beto", 0) == 0
+    for _ in range(4):
+        assert login(client, "Beto", "mala-clave").status_code == 401
+    assert "beto" not in throttle.locks  # el contador se reinició al acertar
+
+
+def test_attempts_and_lock_time_are_configurable():
+    cfg = Settings(admin_password=ADMIN_PASSWORD, max_failed_attempts=2, lockout_minutes=1)
+    players, sessions, pub = FakePlayers(), FakeSessions(), FakePublisher()
+    app = create_app(Services(players, sessions, pub, KEY, cfg, FakeThrottle()), cfg)
+    with TestClient(app) as client:
+        assert register(client, "Carla").status_code == 201
+        assert login(client, "Carla", "mala-clave").status_code == 401
+        locked = login(client, "Carla", "mala-clave")
+        assert locked.status_code == 423 and "1 minuto" in locked.json()["message"]
+        assert locked.headers["Retry-After"] == "60"
+
+
+def test_admin_token_lasts_30_minutes_and_player_token_12_hours(ctx_throttle):
+    client, _ = ctx_throttle
+    player = register(client, "Dani").json()
+    admin = register(client, "admin", ADMIN_PASSWORD).json()
+    assert player["expires_in"] == 12 * 3600
+    assert admin["expires_in"] == 30 * 60 and admin["player"]["role"] == "admin"
+    pub_key = jwt.algorithms.RSAAlgorithm.from_jwk(client.get("/.well-known/jwks.json").json()["keys"][0])
+    claims = jwt.decode(admin["token"], pub_key, algorithms=["RS256"], issuer="jokerarena-auth")
+    player_claims = jwt.decode(player["token"], pub_key, algorithms=["RS256"], issuer="jokerarena-auth")
+    assert claims["exp"] - claims["iat"] == 30 * 60
+    assert player_claims["exp"] - player_claims["iat"] == 12 * 3600
+
+
+def test_login_still_works_when_redis_is_down(ctx_throttle):
+    client, throttle = ctx_throttle
+    assert register(client, "Eva").status_code == 201
+    throttle.down = True
+    assert login(client, "Eva", "mala-clave").status_code == 401  # sin bloqueo disponible
+    assert login(client, "Eva").status_code == 200
 

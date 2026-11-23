@@ -37,6 +37,15 @@ class SessionStore(Protocol):
     async def ping(self) -> None: ...
 
 
+class LoginThrottle(Protocol):
+    """Cuenta intentos fallidos de credenciales y bloquea la cuenta un tiempo."""
+
+    async def remaining_lock(self, alias: str) -> int: ...
+    async def register_failure(self, alias: str, max_attempts: int, lockout_seconds: int) -> int: ...
+    async def clear(self, alias: str) -> None: ...
+    async def ping(self) -> None: ...
+
+
 class PostgresPlayerStore:
     # DDL idempotente: se aplica al arrancar para que un volumen creado antes del
     # registro con contraseña reciba la columna password_hash sin recrear la base.
@@ -132,6 +141,49 @@ class RedisSessionStore:
 
     async def is_revoked(self, jti: str) -> bool:
         return bool(await self.client.exists(f"auth:revoked:{jti}"))
+
+    async def ping(self) -> None:
+        await self.client.ping()
+
+    async def close(self) -> None:
+        await self.client.aclose()
+
+
+class RedisLoginThrottle:
+    """Intentos fallidos por usuario en Redis.
+
+    - ``auth:fail:<usuario>``: contador de fallos (TTL = ventana de bloqueo).
+    - ``auth:lock:<usuario>``: marca de bloqueo (TTL = duración del bloqueo); mientras exista,
+      /auth/login y /auth/register responden 423 para ese usuario.
+    """
+
+    def __init__(self, url: str):
+        self.client = aioredis.from_url(url, socket_connect_timeout=2, socket_timeout=2)
+
+    @staticmethod
+    def _fail_key(alias: str) -> str:
+        return f"auth:fail:{alias.lower()}"
+
+    @staticmethod
+    def _lock_key(alias: str) -> str:
+        return f"auth:lock:{alias.lower()}"
+
+    async def remaining_lock(self, alias: str) -> int:
+        ttl = await self.client.ttl(self._lock_key(alias))
+        return max(int(ttl), 0)
+
+    async def register_failure(self, alias: str, max_attempts: int, lockout_seconds: int) -> int:
+        """Suma un fallo y devuelve los intentos restantes (0 = cuenta bloqueada ahora)."""
+        failures = int(await self.client.incr(self._fail_key(alias)))
+        await self.client.expire(self._fail_key(alias), lockout_seconds)
+        if failures >= max(max_attempts, 1):
+            await self.client.set(self._lock_key(alias), "1", ex=lockout_seconds)
+            await self.client.delete(self._fail_key(alias))
+            return 0
+        return max_attempts - failures
+
+    async def clear(self, alias: str) -> None:
+        await self.client.delete(self._fail_key(alias), self._lock_key(alias))
 
     async def ping(self) -> None:
         await self.client.ping()

@@ -16,7 +16,16 @@ Registra jugadores con **usuario y contraseña** (contraseña guardada como hash
 | GET | `/.well-known/jwks.json` | Llave pública RS256. |
 | GET | `/health` | Estado de PostgreSQL, Redis y RabbitMQ. |
 
-`alias` se sigue aceptando como sinónimo de `user` para clientes anteriores. Claims del token: `iss`, `sub` (player_id UUID), `alias`, `role`, `iat`, `exp` (12 h), `jti`.
+`alias` se sigue aceptando como sinónimo de `user` para clientes anteriores. Claims del token: `iss`, `sub` (player_id UUID), `alias`, `role`, `iat`, `exp`, `jti`.
+
+## Bloqueo por intentos fallidos
+
+- Se cuentan los **fallos de credenciales** (`401 invalid_credentials`) tanto en `/auth/login` como en `/auth/register` (el registro pide la contraseña cuando el usuario es `admin`).
+- Al llegar a **5 fallos** (configurable) la cuenta queda bloqueada **15 minutos** (configurable): mientras dure, ambos endpoints responden `423 account_locked` con cabecera `Retry-After` (segundos) y un mensaje con los minutos restantes.
+- Un inicio de sesión correcto **reinicia** el contador.
+- Estado en Redis: `auth:fail:<usuario>` (contador) y `auth:lock:<usuario>` (bloqueo, TTL). Si Redis no está disponible no se bloquea el acceso (solo se registra la advertencia).
+- **Dónde cambiar el tiempo**: variable `AUTH_LOCKOUT_MINUTES` (minutos) en `.env` o en `services/auth-identity-ms/compose.yml`; el número de intentos es `AUTH_MAX_FAILED_ATTEMPTS` y el TTL del token admin es `AUTH_ADMIN_TOKEN_TTL_SECONDS` (1800 s = 30 min). Tras cambiarlas: `docker compose -f docker-compose.p2.yml up -d jokerarena-auth-identity-ms`.
+- **Desbloqueo manual** (pruebas/demostración): `docker exec jokerarena-redis redis-cli del auth:lock:<usuario> auth:fail:<usuario>`.
 
 ## Datos
 
@@ -27,7 +36,7 @@ Registra jugadores con **usuario y contraseña** (contraseña guardada como hash
 
 ## Variables
 
-`PORT`, `POSTGRES_URL`, `REDIS_URL`, `RABBITMQ_URL`, `ADMIN_PASSWORD`, `JWT_KEY_FILE`, `JWT_TTL_SECONDS`.
+`PORT`, `POSTGRES_URL`, `REDIS_URL`, `RABBITMQ_URL`, `ADMIN_PASSWORD`, `JWT_KEY_FILE`, `JWT_TTL_SECONDS`, `AUTH_MAX_FAILED_ATTEMPTS` (5), `AUTH_LOCKOUT_MINUTES` (15), `AUTH_ADMIN_TOKEN_TTL_SECONDS` (1800).
 
 ## Pruebas
 

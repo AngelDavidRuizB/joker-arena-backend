@@ -17,7 +17,15 @@ from .config import Settings, settings as default_settings
 from .events import Publisher, RabbitPublisher
 from .keys import SigningKey
 from .passwords import hash_password, password_policy_error, verify_password
-from .store import AliasTaken, PlayerStore, PostgresPlayerStore, RedisSessionStore, SessionStore
+from .store import (
+    AliasTaken,
+    LoginThrottle,
+    PlayerStore,
+    PostgresPlayerStore,
+    RedisLoginThrottle,
+    RedisSessionStore,
+    SessionStore,
+)
 
 log = logging.getLogger("auth")
 SERVICE = "auth-identity-ms"
@@ -26,8 +34,9 @@ RESERVED = {"bot", "bot-jokerbot"}
 
 
 class ApiError(Exception):
-    def __init__(self, status: int, code: str, message: str):
+    def __init__(self, status: int, code: str, message: str, retry_after: Optional[int] = None):
         self.status, self.code, self.message = status, code, message
+        self.retry_after = retry_after
 
 
 class AuthBody(BaseModel):
@@ -48,8 +57,10 @@ class AuthBody(BaseModel):
 
 
 class Services:
-    def __init__(self, players: PlayerStore, sessions: SessionStore, publisher: Publisher, key: SigningKey, cfg: Settings):
+    def __init__(self, players: PlayerStore, sessions: SessionStore, publisher: Publisher, key: SigningKey,
+                 cfg: Settings, throttle: Optional[LoginThrottle] = None):
         self.players, self.sessions, self.publisher, self.key, self.cfg = players, sessions, publisher, key, cfg
+        self.throttle = throttle
 
 
 def validate_alias(raw: str) -> str:
@@ -71,6 +82,7 @@ def create_app(services: Optional[Services] = None, cfg: Settings = default_sett
             app.state.svc = Services(
                 PostgresPlayerStore(cfg.postgres_url), RedisSessionStore(cfg.redis_url),
                 publisher, SigningKey.load_or_create(cfg.key_file), cfg,
+                RedisLoginThrottle(cfg.redis_url),
             )
             try:
                 await app.state.svc.players.ensure_schema()
@@ -78,7 +90,8 @@ def create_app(services: Optional[Services] = None, cfg: Settings = default_sett
                 log.warning("no se pudo preparar auth.players (contraseñas): %s", exc)
         yield
         svc = app.state.svc
-        for closer in (getattr(svc.players, "close", None), getattr(svc.sessions, "close", None), getattr(svc.publisher, "close", None)):
+        for closer in (getattr(svc.players, "close", None), getattr(svc.sessions, "close", None),
+                       getattr(svc.throttle, "close", None), getattr(svc.publisher, "close", None)):
             if closer:
                 try:
                     await closer()
@@ -90,7 +103,8 @@ def create_app(services: Optional[Services] = None, cfg: Settings = default_sett
 
     @app.exception_handler(ApiError)
     async def api_error(_: Request, exc: ApiError):
-        return JSONResponse(status_code=exc.status, content={"error": exc.code, "message": exc.message})
+        headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after else None
+        return JSONResponse(status_code=exc.status, content={"error": exc.code, "message": exc.message}, headers=headers)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(_: Request, exc: RequestValidationError):
@@ -104,17 +118,19 @@ def create_app(services: Optional[Services] = None, cfg: Settings = default_sett
 
     def issue(s: Services, player) -> dict:
         now = int(time.time())
+        # El rol admin tiene una vigencia más corta (30 min por defecto).
+        ttl = s.cfg.admin_token_ttl_seconds if player.role == "admin" else s.cfg.token_ttl_seconds
         jti = str(uuid.uuid4())
         claims = {"iss": s.cfg.issuer, "sub": player.player_id, "alias": player.alias, "role": player.role,
-                  "iat": now, "exp": now + s.cfg.token_ttl_seconds, "jti": jti}
+                  "iat": now, "exp": now + ttl, "jti": jti}
         token = jwt.encode(claims, s.key.private_pem, algorithm="RS256", headers={"kid": s.key.kid})
-        return {"token": token, "token_type": "Bearer", "expires_in": s.cfg.token_ttl_seconds, "jti": jti,
+        return {"token": token, "token_type": "Bearer", "expires_in": ttl, "jti": jti,
                 "player": {"player_id": player.player_id, "alias": player.alias, "user": player.alias,
                            "role": player.role}}
 
     async def start_session(s: Services, out: dict) -> None:
         try:
-            await s.sessions.start(out["jti"], out["player"]["player_id"], s.cfg.token_ttl_seconds)
+            await s.sessions.start(out["jti"], out["player"]["player_id"], out["expires_in"])
         except Exception as exc:  # noqa: BLE001 - Redis es auxiliar: el token sigue siendo válido
             log.warning("no se pudo registrar la sesión en Redis: %s", exc)
         out.pop("jti", None)
@@ -152,6 +168,50 @@ def create_app(services: Optional[Services] = None, cfg: Settings = default_sett
                 raise ApiError(400, "invalid_password", problem)
         return password
 
+    def lock_message(remaining_seconds: int) -> str:
+        minutes = max(1, (remaining_seconds + 59) // 60)
+        return ("Cuenta bloqueada por demasiados intentos fallidos. "
+                f"Inténtalo de nuevo en {minutes} {'minuto' if minutes == 1 else 'minutos'}.")
+
+    async def ensure_not_locked(s: Services, alias: str) -> None:
+        """Responde 423 si la cuenta está bloqueada (si Redis falla, no se bloquea el acceso)."""
+        if s.throttle is None:
+            return
+        try:
+            remaining = await s.throttle.remaining_lock(alias)
+        except Exception as exc:  # noqa: BLE001 - Redis es auxiliar
+            log.warning("no se pudo comprobar el bloqueo de %s: %s", alias, exc)
+            return
+        if remaining > 0:
+            raise ApiError(423, "account_locked", lock_message(remaining), retry_after=remaining)
+
+    async def clear_failures(s: Services, alias: str) -> None:
+        if s.throttle is None:
+            return
+        try:
+            await s.throttle.clear(alias)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("no se pudo limpiar los intentos fallidos de %s: %s", alias, exc)
+
+    async def fail_credentials(s: Services, alias: str, exc: ApiError) -> None:
+        """Cuenta un fallo de credenciales y relanza el error (423 al llegar al máximo)."""
+        remaining: Optional[int] = None
+        if s.throttle is not None:
+            try:
+                remaining = await s.throttle.register_failure(
+                    alias, s.cfg.max_failed_attempts, s.cfg.lockout_seconds)
+            except Exception as err:  # noqa: BLE001 - Redis es auxiliar
+                log.warning("no se pudo registrar el intento fallido de %s: %s", alias, err)
+        if remaining == 0:
+            log.warning("cuenta %s bloqueada: %d intentos fallidos", alias, s.cfg.max_failed_attempts)
+            raise ApiError(423, "account_locked", lock_message(s.cfg.lockout_seconds),
+                           retry_after=s.cfg.lockout_seconds)
+        if remaining is not None:
+            if remaining == 1:
+                raise ApiError(exc.status, exc.code, f"{exc.message} Te queda 1 intento.")
+            raise ApiError(exc.status, exc.code, f"{exc.message} Te quedan {remaining} intentos.")
+        raise exc
+
     @app.post("/auth/register", status_code=201)
     async def register(body: AuthBody, s: Services = Depends(svc)):
         """Crea la cuenta (usuario + contraseña) y abre sesión.
@@ -164,7 +224,15 @@ def create_app(services: Optional[Services] = None, cfg: Settings = default_sett
         password = require_password(body)
         if body.repeat_password is not None and body.repeat_password != password:
             raise ApiError(400, "password_mismatch", "La contraseña y su repetición no coinciden.")
-        role = check_admin(s, alias, password)
+        # El registro también pide la contraseña cuando el usuario es `admin`: los fallos
+        # cuentan para el bloqueo igual que en el login.
+        await ensure_not_locked(s, alias)
+        try:
+            role = check_admin(s, alias, password)
+        except ApiError as exc:
+            if exc.code != "invalid_credentials":
+                raise
+            await fail_credentials(s, alias, exc)
         password_hash = hash_password(password)
         try:
             player = await store_call(s.players.create(alias, role, password_hash))
@@ -176,26 +244,38 @@ def create_app(services: Optional[Services] = None, cfg: Settings = default_sett
             created = False
         if created:
             await s.publisher.publish("auth.player.registered", {"player_id": player.player_id, "alias": player.alias})
+        await clear_failures(s, alias)
         out = issue(s, player)
         await start_session(s, out)
         return out
 
     @app.post("/auth/login")
     async def login(body: AuthBody, s: Services = Depends(svc)):
-        """Verifica usuario y contraseña contra el hash guardado y emite el JWT."""
+        """Verifica usuario y contraseña contra el hash guardado y emite el JWT.
+
+        Tras ``max_failed_attempts`` fallos de credenciales (login o registro) la cuenta queda
+        bloqueada ``lockout_minutes`` minutos y se responde ``423 account_locked``.
+        """
         alias = validate_alias(require_username(body))
         password = require_password(body, check_policy=False)
-        check_admin(s, alias, password)
-        player = await store_call(s.players.by_alias(alias))
-        if player is None:
-            raise ApiError(404, "player_not_found", "No existe un usuario con ese nombre: regístrate primero.")
-        if alias.lower() != "admin":
-            if not player.password_hash:
-                raise ApiError(401, "password_not_set",
-                               "Esta cuenta aún no tiene contraseña: regístrate otra vez con el mismo usuario "
-                               "para crearla.")
-            if not verify_password(password, player.password_hash):
-                raise ApiError(401, "invalid_credentials", "Usuario o contraseña incorrectos.")
+        await ensure_not_locked(s, alias)
+        try:
+            check_admin(s, alias, password)
+            player = await store_call(s.players.by_alias(alias))
+            if player is None:
+                raise ApiError(404, "player_not_found", "No existe un usuario con ese nombre: regístrate primero.")
+            if alias.lower() != "admin":
+                if not player.password_hash:
+                    raise ApiError(401, "password_not_set",
+                                   "Esta cuenta aún no tiene contraseña: regístrate otra vez con el mismo usuario "
+                                   "para crearla.")
+                if not verify_password(password, player.password_hash):
+                    raise ApiError(401, "invalid_credentials", "Usuario o contraseña incorrectos.")
+        except ApiError as exc:
+            if exc.code != "invalid_credentials":
+                raise
+            await fail_credentials(s, alias, exc)
+        await clear_failures(s, alias)
         out = issue(s, player)
         await start_session(s, out)
         return out
