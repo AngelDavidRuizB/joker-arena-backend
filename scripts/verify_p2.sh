@@ -58,6 +58,24 @@ check GET /api/game/ruleset 200
 check GET /admin/liveops/ruleset 403 -H "Authorization: Bearer $token"
 check GET /admin/cluster/snapshot 403 -H "Authorization: Bearer $token"
 
+# Bloqueo por intentos fallidos: 5 contraseñas erróneas → 423 account_locked + Retry-After
+lockuser="lock$RANDOM"
+lockpass="lockout-$RANDOM"
+curl -s -o /dev/null -X POST "$GW/api/auth/register" -H 'Content-Type: application/json' \
+  -d "{\"user\":\"$lockuser\",\"password\":\"$lockpass\",\"repeat_password\":\"$lockpass\"}"
+for _ in 1 2 3 4; do
+  curl -s -o /dev/null -X POST "$GW/api/auth/login" -H 'Content-Type: application/json' \
+    -d "{\"user\":\"$lockuser\",\"password\":\"mala-clave\"}"
+  sleep 0.2
+done
+locked=$(curl -s -D /tmp/jkr_lock.h -o /dev/null -w '%{http_code}' -X POST "$GW/api/auth/login" \
+  -H 'Content-Type: application/json' -d "{\"user\":\"$lockuser\",\"password\":\"mala-clave\"}")
+if [ "$locked" = "423" ] && grep -qi '^retry-after:' /tmp/jkr_lock.h; then
+  ok "5 intentos fallidos → 423 account_locked (Retry-After presente)"
+else
+  bad "bloqueo por intentos fallidos → $locked (esperado 423)"
+fi
+
 echo "5. Cliente web SSR ($WEB · repositorio joker-arena-frontend)"
 code=$(curl -s -o /tmp/jkr_lb.html -w '%{http_code}' --max-time 5 "$WEB/leaderboard")
 [ -z "$code" ] && code=000
@@ -76,6 +94,6 @@ for q in telemetry-ms.events leaderboard-stats-ms.players leaderboard-stats-ms.m
 done
 
 echo
-warn "datos de prueba creados: usuario '$user' y una sala en modo bot (POST /api/rooms)"
+warn "datos de prueba creados: usuarios '$user' y '$lockuser' (este último con 5 fallos) y una sala en modo bot"
 [ $fail -eq 0 ] && echo "✅ Todo en orden." || echo "❌ Hay verificaciones fallidas (ver arriba)."
 exit $fail

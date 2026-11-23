@@ -22,6 +22,8 @@ POST /api/auth/login      {"user": "JokerPro99", "password": "secreta123"}
 - Registro: `201 {token, player}` · `409 alias_taken` (ya existe con contraseña) · `400 invalid_password` · `503 store_unavailable`.
 - Login: `200 {token, player}` · `401 invalid_credentials` (usuario o contraseña incorrectos) · `404 player_not_found` · `401 password_not_set` (cuenta anterior sin contraseña: vuelve a registrarte con el mismo usuario para crearla).
 - El usuario reservado `admin` exige además `ADMIN_PASSWORD` (registro y login).
+- Bloqueo: tras `AUTH_MAX_FAILED_ATTEMPTS` (5) fallos de credenciales en login **o** registro, la cuenta queda bloqueada `AUTH_LOCKOUT_MINUTES` (15) minutos → `423 account_locked` + cabecera `Retry-After` (segundos) en ambos endpoints. Un login correcto reinicia el contador.
+- Vigencia del token: **12 h** para `player` y **30 min** para `admin` (`AUTH_ADMIN_TOKEN_TTL_SECONDS`); `expires_in` y el claim `exp` reflejan el valor aplicado.
 
 | Ruta pública | Método | Servicio → ruta interna | Auth |
 |---|---|---|---|
