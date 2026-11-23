@@ -1,6 +1,6 @@
 # API Gateway
 
-Punto único de entrada del sistema. **Responsable:** Esteban Andrés Gómez Álvarez · **nginx 1.27** · puerto **8080** (el único servicio publicado al host junto con la web).
+Gateway interno del sistema. **Responsable:** Esteban Andrés Gómez Álvarez · **nginx 1.27** · puerto **8080** (no se publica al host; el reverse proxy es la única entrada pública).
 
 Rutas y reglas: `contracts/http-routes.md`. Configuración: `nginx.conf`.
 
@@ -17,11 +17,11 @@ El plan inicial era KrakenD, pero su edición gratuita no hace proxy de WebSocke
 ## Probar
 
 ```bash
-curl -s localhost:8080/health
+curl -s http://localhost/health
 ```
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' localhost:8080/api/rooms
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost/api/rooms
 ```
 
 El segundo debe responder `401` (ruta protegida sin token).

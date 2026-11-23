@@ -9,7 +9,7 @@
 > bash scripts/verify_p2.sh
 > ```
 >
-> Juego: http://localhost:3000 · Gateway: http://localhost:8080 · Administración: alias `admin` + `ADMIN_PASSWORD`.
+> Juego y API: http://localhost · HTTPS: https://localhost (certificado autofirmado local) · Administración: alias `admin` + `ADMIN_PASSWORD`.
 >
 > | Servicio | Lenguaje | Carpeta |
 > |---|---|---|
@@ -76,8 +76,8 @@ docker compose ps           # los 5 servicios deben quedar "healthy"
 
 | Componente | URL |
 |---|---|
-| Aplicación web | http://localhost:3000 |
-| Game Engine | http://localhost:8080/health · `ws://localhost:8080/ws/{code}` |
+| Aplicación web y API Gateway (P2) | http://localhost · `https://localhost` |
+| Game Engine (P1) | http://localhost:8080/health · `ws://localhost:8080/ws/{code}` |
 | Telemetría | http://localhost:8000/docs · http://localhost:8000/health · gRPC `localhost:50051` |
 | PostgreSQL | `localhost:5432` · BD `appdb` · usuario `appuser` |
 | MongoDB | `localhost:27017` · BD `casino_games` · usuario `admin` (`authSource=admin`) |

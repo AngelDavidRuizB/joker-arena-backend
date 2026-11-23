@@ -6,7 +6,7 @@ from typing import Any, Optional
 
 import httpx
 
-DEFAULT_GATEWAY = "http://localhost:8080"
+DEFAULT_GATEWAY = "http://localhost"
 
 
 class CliError(Exception):

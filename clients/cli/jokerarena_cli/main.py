@@ -76,7 +76,7 @@ def rooms_create(bot: bool = typer.Option(True, "--bot/--solo"), target: int = 2
     def go():
         r = gw(auth=True).create_room(bot, target, difficulty)
         console.print(f"[bold green]✓[/] Sala [bold cyan]{r['room_code']}[/] creada ({r['mode']}, {r['difficulty']}, meta {r['target_score']:,}).")
-        console.print(f"  Juega en la web: http://localhost:3000/room/{r['room_code']}  ·  o mírala aquí: jokerarena watch {r['room_code']}")
+        console.print(f"  Juega en la web: http://localhost/room/{r['room_code']}  ·  o mírala aquí: jokerarena watch {r['room_code']}")
     run(go)
 
 

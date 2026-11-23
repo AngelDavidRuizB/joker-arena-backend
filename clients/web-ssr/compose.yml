@@ -9,8 +9,6 @@ services:
     restart: unless-stopped
     environment:
       GATEWAY_INTERNAL_URL: http://jokerarena-gateway:8080
-    ports:
-      - "${WEB_PORT:-3000}:3000"
     depends_on:
       jokerarena-gateway:
         condition: service_healthy

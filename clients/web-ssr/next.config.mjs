@@ -1,5 +1,5 @@
 /** @type {import('next').NextConfig} */
-const GATEWAY = process.env.GATEWAY_INTERNAL_URL ?? 'http://localhost:8080';
+const GATEWAY = process.env.GATEWAY_INTERNAL_URL ?? 'http://localhost';
 
 const nextConfig = {
   output: 'standalone',
@@ -7,7 +7,7 @@ const nextConfig = {
   poweredByHeader: false,
   // Las llamadas REST del navegador van al mismo origen (/api/...) y Next las reenvía al
   // gateway: así el navegador nunca habla con un microservicio directamente y no hay CORS.
-  // El WebSocket del juego sí va directo al gateway (NEXT_PUBLIC_GATEWAY_WS_URL).
+  // El WebSocket usa el mismo origen y el reverse proxy lo reenvía al gateway.
   async rewrites() {
     return [
       { source: '/api/:path((?!health).*)', destination: `${GATEWAY}/api/:path` },

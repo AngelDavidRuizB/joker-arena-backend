@@ -4,10 +4,20 @@ services:
     build: .
     container_name: jokerarena-gateway
     restart: unless-stopped
-    ports:
-      - "${GATEWAY_PORT:-8080}:8080"
-    networks: [jokerarena-net]
+    networks:
+      jokerarena-net: {}
+      jokerarena-proxy-net:
+        ipv4_address: 172.30.253.3
+        aliases:
+          - jokerarena-gateway-edge
 
 networks:
   jokerarena-net:
     name: jokerarena-net
+  jokerarena-proxy-net:
+    name: jokerarena-proxy-net
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.253.0/24

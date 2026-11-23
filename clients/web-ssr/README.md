@@ -29,5 +29,5 @@ npm test
 ```
 
 ```bash
-GATEWAY_INTERNAL_URL=http://localhost:8080 npm run dev
+GATEWAY_INTERNAL_URL=http://localhost NEXT_PUBLIC_GATEWAY_WS_URL=ws://localhost npm run dev
 ```

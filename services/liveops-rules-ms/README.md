@@ -18,15 +18,15 @@ Guarda el ruleset de los Jokers como **versiones append-only** en PostgreSQL, lo
 ## Demo
 
 ```bash
-TOKEN=$(curl -s -X POST localhost:8080/api/auth/login -H 'Content-Type: application/json' -d '{"alias":"admin","password":"<ADMIN_PASSWORD>"}' | jq -r .token)
+TOKEN=$(curl -s -X POST localhost/api/auth/login -H 'Content-Type: application/json' -d '{"alias":"admin","password":"<ADMIN_PASSWORD>"}' | jq -r .token)
 ```
 
 ```bash
-curl -s -X POST localhost:8080/admin/liveops/happy-hour -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"enabled":true,"global_mult":2}'
+curl -s -X POST localhost/admin/liveops/happy-hour -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"enabled":true,"global_mult":2}'
 ```
 
 ```bash
-curl -s localhost:8080/api/game/ruleset
+curl -s localhost/api/game/ruleset
 ```
 
 ## Pruebas

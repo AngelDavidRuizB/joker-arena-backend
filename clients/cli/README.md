@@ -2,7 +2,8 @@
 
 Cliente de terminal. **Responsable:** José Alejandro Solano Garcés · **Python (Typer, httpx, Rich, websockets)**.
 
-Habla **solo** con el API Gateway (`http://localhost:8080` o la variable `JOKERARENA_GATEWAY`). Guarda la sesión en `~/.jokerarena/session.json`.
+Habla con el API Gateway a través del reverse proxy (`http://localhost` o la variable
+`JOKERARENA_GATEWAY`). Guarda la sesión en `~/.jokerarena/session.json`.
 
 ```bash
 pip install ./clients/cli

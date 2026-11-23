@@ -4,10 +4,10 @@ import { cookies } from 'next/headers';
 import { SESSION_COOKIE } from '../../store/session';
 
 /**
- * URL interna del API Gateway dentro de `jokerarena-net`. El navegador nunca usa esta
- * constante: las páginas se renderizan en el servidor de Next y es él quien llama al gateway.
+ * Compose apunta al gateway interno. Fuera de Compose, el valor por defecto usa el reverse
+ * proxy local; las páginas SSR son las que llaman al gateway, nunca el navegador directamente.
  */
-const GATEWAY = process.env.GATEWAY_INTERNAL_URL ?? 'http://localhost:8080';
+const GATEWAY = process.env.GATEWAY_INTERNAL_URL ?? 'http://localhost';
 
 /** Resultado de una consulta SSR: nunca lanza; la página decide qué pintar. */
 export type GatewayResult<T> = { ok: true; data: T } | { ok: false; message: string };

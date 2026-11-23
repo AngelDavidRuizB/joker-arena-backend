@@ -1,7 +1,21 @@
 # Contrato de rutas del API Gateway
 
-Único punto de entrada: **`http://localhost:8080`** (contenedor `jokerarena-gateway`, nginx).
-Configuración: `gateway/nginx.conf`.
+Único punto de entrada público: **`http://localhost`** y **`https://localhost`**
+(contenedor `jokerarena-reverse-proxy`, Nginx en `edge/reverse-proxy/`).
+El puerto 80 sirve HTTP y el 443 HTTPS; ambos enrutan a la misma aplicación.
+Configuración interna del API Gateway: `gateway/nginx.conf`.
+
+- `/` se enruta a `web-ssr`; `/api/*`, `/ws/*`, `/admin/liveops/*`,
+  `/admin/cluster/*` y `/health` al API Gateway. La página web `/admin` se conserva en
+  `web-ssr`; la excepción evita que el namespace de la consola web choque con sus rutas API.
+- El proxy agrega cabeceras de seguridad, oculta la versión de Nginx y limita tamaño y
+  tiempos de conexión/lectura. Los WebSockets mantienen una conexión de hasta una hora.
+- El proxy reemplaza `X-Forwarded-For` con la IP del cliente. El gateway solo confía en la
+  IP fija del proxy (`172.30.253.2`) y actualiza `remote_addr` mediante `real_ip`; así el
+  límite de `/api/auth/*` continúa siendo por IP y no puede falsificarse desde el cliente.
+- El certificado autofirmado que se genera al iniciar es solo para desarrollo local.
+  Para despliegues públicos, reemplázalo con un certificado válido y no publiques puertos
+  de servicios o bases de datos.
 
 - **Autenticación:** las rutas marcadas con JWT hacen una subpetición a `auth-identity-ms` (`GET /auth/verify`) antes de enrutar. Sin token → `401`; rol insuficiente → `403`.
 - **Token:** `Authorization: Bearer <jwt>`. En WebSockets los navegadores no envían cabeceras, así que el token va en `?token=<jwt>`.
@@ -34,7 +48,9 @@ Configuración: `gateway/nginx.conf`.
 | `/admin/cluster/snapshot` | GET | cluster-monitor-ms | JWT rol `admin` |
 | `/admin/cluster/metrics?token=<jwt>` | WebSocket | cluster-monitor-ms | JWT rol `admin` |
 
-`bot-ai-ms` no se publica: solo lo llama `game-engine-ms` dentro de la red.
+`bot-ai-ms` no se publica: solo lo llama `game-engine-ms` dentro de la red. En el Compose
+P2, las bases de datos y consolas administrativas se enlazan a `127.0.0.1`; no son accesibles
+desde otros equipos. Gateway y web-SSR no publican puertos del host.
 
 ## Llamadas internas (dentro de `jokerarena-net`)
 

@@ -1,0 +1,36 @@
+services:
+  jokerarena-reverse-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jokerarena-reverse-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - p2-proxy-certs:/etc/nginx/certs
+    depends_on:
+      jokerarena-gateway:
+        condition: service_healthy
+      jokerarena-web-ssr:
+        condition: service_healthy
+    networks:
+      jokerarena-net: {}
+      jokerarena-proxy-net:
+        ipv4_address: 172.30.253.2
+
+networks:
+  jokerarena-net:
+    name: jokerarena-net
+  jokerarena-proxy-net:
+    name: jokerarena-proxy-net
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.253.0/24
+
+volumes:
+  p2-proxy-certs:
+    name: p2-proxy-certs

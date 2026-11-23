@@ -17,6 +17,7 @@ include:
   - services/cluster-monitor-ms/compose.yml
   - gateway/compose.yml
   - clients/web-ssr/compose.yml
+  - edge/reverse-proxy/compose.yml
 
 services:
   # --------------------------------------------------------------------------
@@ -37,7 +38,7 @@ services:
       LIVEOPS_DB_PASSWORD: ${LIVEOPS_DB_PASSWORD:?Defina LIVEOPS_DB_PASSWORD en .env}
       MONITOR_DB_PASSWORD: ${MONITOR_DB_PASSWORD:?Defina MONITOR_DB_PASSWORD en .env}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - p2-pgdata:/var/lib/postgresql/data
       - ./db/postgres/init:/docker-entrypoint-initdb.d:ro
@@ -61,7 +62,7 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Defina MONGO_ROOT_PASSWORD en .env}
       MONGO_INITDB_DATABASE: telemetry
     ports:
-      - "${MONGO_PORT:-27017}:27017"
+      - "127.0.0.1:${MONGO_PORT:-27017}:27017"
     volumes:
       - p2-mongodata:/data/db
       - ./db/mongo/init.js:/docker-entrypoint-initdb.d/init.js:ro
@@ -101,7 +102,7 @@ services:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?Defina NEO4J_PASSWORD en .env (mínimo 8 caracteres)}
       NEO4J_server_memory_heap_max__size: 512m
     ports:
-      - "${NEO4J_HTTP_PORT:-7474}:7474"
+      - "127.0.0.1:${NEO4J_HTTP_PORT:-7474}:7474"
     volumes:
       - p2-neo4jdata:/data
     healthcheck:
@@ -123,7 +124,7 @@ services:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-jokerarena}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Defina RABBITMQ_PASSWORD en .env}
     ports:
-      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
+      - "127.0.0.1:${RABBITMQ_MGMT_PORT:-15672}:15672"
     volumes:
       - p2-rabbitdata:/var/lib/rabbitmq
     healthcheck:
@@ -137,6 +138,13 @@ services:
 networks:
   jokerarena-net:
     name: jokerarena-net
+  jokerarena-proxy-net:
+    name: jokerarena-proxy-net
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.253.0/24
 
 volumes:
   p2-pgdata:
@@ -144,3 +152,5 @@ volumes:
   p2-redisdata:
   p2-neo4jdata:
   p2-rabbitdata:
+  p2-proxy-certs:
+    name: p2-proxy-certs

@@ -16,7 +16,7 @@ describe('consola de administración', () => {
 
   it('abre el radar por el gateway con el token en la query', () => {
     expect(wsAdminUrl('a.b.c', { protocol: 'http:', hostname: 'localhost' })).toBe(
-      'ws://localhost:8080/admin/cluster/metrics?token=a.b.c',
+      'ws://localhost/admin/cluster/metrics?token=a.b.c',
     );
   });
 });

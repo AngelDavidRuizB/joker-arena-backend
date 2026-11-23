@@ -94,7 +94,7 @@ Con todo el sistema (desde la raíz del repo):
 docker compose -f docker-compose.p2.yml up -d --build jokerarena-leaderboard-stats-ms
 ```
 
-Eso levanta también Neo4j, Redis y RabbitMQ (`depends_on`). El servicio no publica puertos al host: se consume a través del gateway (`http://localhost:8080/api/leaderboard/top`).
+Eso levanta también Neo4j, Redis y RabbitMQ (`depends_on`). El servicio no publica puertos al host: se consume a través del reverse proxy y gateway (`http://localhost/api/leaderboard/top`).
 
 Para ver el grafo en el navegador de Neo4j (`http://localhost:7474`):
 

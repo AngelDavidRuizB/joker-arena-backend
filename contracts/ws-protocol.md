@@ -1,6 +1,7 @@
 # Protocolo WebSocket del juego
 
-`ws://localhost:8080/ws/{code}?token=<jwt>` → gateway → `game-engine-ms`.
+`ws://localhost/ws/{code}?token=<jwt>` (o `wss://localhost/ws/{code}?token=<jwt>`)
+→ reverse proxy → gateway → `game-engine-ms`.
 Se conserva el protocolo del Prototipo 1; lo nuevo es la autenticación por JWT y el campo `ruleset_version`.
 
 Todos los mensajes: `{"type": "<TIPO>", "payload": { ... }}`.

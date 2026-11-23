@@ -50,7 +50,7 @@ export function toPutBody(expectedVersion: number, r: Pick<Ruleset, 'jokers' | '
 
 export function wsAdminUrl(token: string, loc: Pick<Location, 'protocol' | 'hostname'> = window.location): string {
   const base = process.env.NEXT_PUBLIC_GATEWAY_WS_URL;
-  const origin = base ? base.replace(/\/$/, '') : `${loc.protocol === 'https:' ? 'wss:' : 'ws:'}//${loc.hostname}:8080`;
+  const origin = base ? base.replace(/\/$/, '') : `${loc.protocol === 'https:' ? 'wss:' : 'ws:'}//${loc.hostname}`;
   return `${origin}/admin/cluster/metrics?token=${encodeURIComponent(token)}`;
 }
 
