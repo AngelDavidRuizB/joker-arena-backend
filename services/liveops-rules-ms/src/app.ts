@@ -1,4 +1,5 @@
-import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
+import Fastify, { type FastifyBaseLogger, type FastifyInstance, type FastifyRequest } from "fastify";
+import type { AdminGuard } from "./auth";
 import { JOKER_IDS, type JokerId, ValidationError } from "./ruleset";
 import { LiveopsService, VersionConflictError } from "./service";
 
@@ -11,20 +12,22 @@ export interface HealthChecks {
 
 const err = (error: string, message: string, extra: Record<string, unknown> = {}) => ({ error, message, ...extra });
 
-/** Quien hace el cambio: alias del JWT que el gateway validó (o "admin" si no viene). */
-function actor(authorization: string | undefined): string {
-  try {
-    const payload = (authorization ?? "").replace(/^Bearer\s+/i, "").split(".")[1];
-    if (!payload) return "admin";
-    const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { alias?: string };
-    return claims.alias ?? "admin";
-  } catch {
-    return "admin";
-  }
-}
+/** Quien hace el cambio: alias del token ya verificado por el guard (P3, escenario 5). */
+const actor = (req: FastifyRequest): string => req.admin?.alias ?? req.admin?.sub ?? "admin";
 
-export function buildApp(service: LiveopsService, health: HealthChecks, logger?: FastifyBaseLogger): FastifyInstance {
+/** Métodos que solo leen: quedan abiertos (el motor consulta el ruleset sin token). */
+const READ_ONLY = new Set(["GET", "HEAD", "OPTIONS"]);
+
+export function buildApp(service: LiveopsService, health: HealthChecks, requireAdmin: AdminGuard, logger?: FastifyBaseLogger): FastifyInstance {
   const app: FastifyInstance = logger ? Fastify({ loggerInstance: logger }) : Fastify({ logger: false });
+
+  // Zero Trust: todo cambio (PUT/POST/PATCH/DELETE, también rutas futuras) exige un
+  // JWT admin verificado aquí mismo, aunque la petición no venga del gateway.
+  app.addHook("onRequest", async (req, reply) => {
+    if (READ_ONLY.has(req.method)) return;
+    await requireAdmin(req, reply);
+    return reply.sent ? reply : undefined;
+  });
 
   app.setErrorHandler((e, req, reply) => {
     if (e instanceof ValidationError) return reply.code(400).send(err("invalid_ruleset", e.message, { details: e.details }));
@@ -47,7 +50,7 @@ export function buildApp(service: LiveopsService, health: HealthChecks, logger?:
 
   app.put<{ Body: Record<string, unknown> }>("/liveops/ruleset", async (req) => {
     const body = req.body ?? {};
-    const res = await service.save(body.expected_version, body, actor(req.headers.authorization));
+    const res = await service.save(body.expected_version, body, actor(req));
     return { ...res.ruleset, published: res.published };
   });
 
@@ -55,12 +58,12 @@ export function buildApp(service: LiveopsService, health: HealthChecks, logger?:
     if (!JOKER_IDS.includes(req.params.id as JokerId)) {
       return reply.code(404).send(err("joker_not_found", `Joker desconocido. Use: ${JOKER_IDS.join(", ")}.`));
     }
-    const res = await service.toggleJoker(req.params.id as JokerId, actor(req.headers.authorization));
+    const res = await service.toggleJoker(req.params.id as JokerId, actor(req));
     return { ...res.ruleset, published: res.published };
   });
 
   app.post("/liveops/happy-hour", async (req) => {
-    const res = await service.setHappyHour(req.body, actor(req.headers.authorization));
+    const res = await service.setHappyHour(req.body, actor(req));
     return { ...res.ruleset, published: res.published };
   });
 
