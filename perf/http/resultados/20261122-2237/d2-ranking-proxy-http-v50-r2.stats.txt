@@ -1,0 +1,16 @@
+﻿jokerarena-perf-tls;0.00%;28.43MiB / 11.52GiB
+jokerarena-leaderboard-stats-ms;0.03%;71.52MiB / 11.52GiB
+jokerarena-telemetry-ms;0.21%;53.24MiB / 11.52GiB
+jokerarena-rooms-lobby-ms;0.07%;203.8MiB / 11.52GiB
+jokerarena-liveops-rules-ms;14.84%;39.85MiB / 11.52GiB
+jokerarena-auth-identity-ms;0.19%;72.19MiB / 11.52GiB
+jokerarena-game-engine-ms;0.05%;6.527MiB / 11.52GiB
+jokerarena-cluster-monitor-ms;1.41%;16.34MiB / 11.52GiB
+jokerarena-web-ssr;0.00%;87.64MiB / 11.52GiB
+jokerarena-postgres;8.13%;75.58MiB / 11.52GiB
+jokerarena-mongo;75.37%;292.5MiB / 11.52GiB
+jokerarena-rabbitmq;71.71%;206.2MiB / 11.52GiB
+jokerarena-redis;1.01%;10.01MiB / 11.52GiB
+jokerarena-gateway;0.00%;22.5MiB / 11.52GiB
+jokerarena-neo4j;1.33%;1.078GiB / 11.52GiB
+jokerarena-bot-ai-ms;0.00%;2.656MiB / 11.52GiB

@@ -1,0 +1,18 @@
+# ==============================================================================
+# JokerArena P3 · D1 · Ranking SIN caché (solo para la prueba de carga)
+#
+# Se usa como override del compose principal y recrea únicamente el Servicio de
+# Ranking apuntando a un Redis inexistente. El servicio trata Redis como una
+# optimización (safeCache): si falla, consulta Neo4j en cada petición. Así se mide
+# el costo real de la consulta al grafo sin tocar el código ni el .env.
+#
+#   Activar:  docker compose -f docker-compose.p2.yml -f perf/http/sin-cache/compose.sin-cache.yml up -d --no-deps jokerarena-leaderboard-stats-ms
+#   Restaurar: docker compose -f docker-compose.p2.yml up -d --no-deps jokerarena-leaderboard-stats-ms
+# (En el P3 el archivo principal es docker-compose.yml.)
+# ==============================================================================
+services:
+  jokerarena-leaderboard-stats-ms:
+    environment:
+      # Puerto 1 en localhost del contenedor: la conexión falla al instante y,
+      # con enableOfflineQueue=false, cada get/set de la caché falla sin esperar.
+      REDIS_URL: redis://127.0.0.1:1/0
