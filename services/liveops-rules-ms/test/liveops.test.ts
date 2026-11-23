@@ -5,6 +5,7 @@ import { silentLogger } from "../src/logger";
 import { defaultValues, type Ruleset, type RulesetValues, validateValues, ValidationError } from "../src/ruleset";
 import { LiveopsService } from "../src/service";
 import type { RulesetRepository } from "../src/store";
+import { adminHeaders, testGuard } from "./jwt-helpers";
 
 class MemRepo implements RulesetRepository {
   rows: Ruleset[] = [];
@@ -89,8 +90,9 @@ describe("API de liveops", () => {
   let repo: MemRepo;
   let cache: MemCache;
   let pub: MemPublisher;
+  const guard = testGuard();
   const health: HealthChecks = { postgres: async () => "ok", redis: async () => "ok", rabbitmq: async () => "ok" };
-  const app = () => buildApp(new LiveopsService(repo, cache, pub, silentLogger), health);
+  const app = () => buildApp(new LiveopsService(repo, cache, pub, silentLogger), health, guard);
 
   beforeEach(() => {
     repo = new MemRepo();
@@ -110,7 +112,7 @@ describe("API de liveops", () => {
   });
 
   it("PUT con banner 45 crea la v2, actualiza la caché y publica exactamente un evento", async () => {
-    const res = await app().inject({ method: "PUT", url: "/liveops/ruleset", payload: body(1, (v) => (v.jokers.banner.chips_per_discard = 45)) });
+    const res = await app().inject({ method: "PUT", url: "/liveops/ruleset", payload: body(1, (v) => (v.jokers.banner.chips_per_discard = 45)), headers: adminHeaders() });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ version: 2, published: true, jokers: { banner: { chips_per_discard: 45 } } });
     expect(cache.value?.version).toBe(2);
@@ -119,38 +121,37 @@ describe("API de liveops", () => {
   });
 
   it("PUT con una versión vieja responde 409 y no publica", async () => {
-    await app().inject({ method: "PUT", url: "/liveops/ruleset", payload: body(1) });
-    const res = await app().inject({ method: "PUT", url: "/liveops/ruleset", payload: body(1) });
+    await app().inject({ method: "PUT", url: "/liveops/ruleset", payload: body(1), headers: adminHeaders() });
+    const res = await app().inject({ method: "PUT", url: "/liveops/ruleset", payload: body(1), headers: adminHeaders() });
     expect(res.statusCode).toBe(409);
     expect(res.json()).toMatchObject({ error: "version_conflict", current_version: 2 });
     expect(pub.sent).toHaveLength(1);
   });
 
   it("PUT con valores fuera de rango responde 400 con el detalle", async () => {
-    const res = await app().inject({ method: "PUT", url: "/liveops/ruleset", payload: body(1, (v) => (v.jokers.duo.mult_factor = 11)) });
+    const res = await app().inject({ method: "PUT", url: "/liveops/ruleset", payload: body(1, (v) => (v.jokers.duo.mult_factor = 11)), headers: adminHeaders() });
     expect(res.statusCode).toBe(400);
     expect(res.json().details[0]).toContain("jokers.duo.mult_factor");
     expect(repo.rows).toHaveLength(1);
   });
 
   it("toggle de un Joker y happy hour generan nuevas versiones", async () => {
-    const t = await app().inject({ method: "POST", url: "/liveops/jokers/duo/toggle" });
+    const t = await app().inject({ method: "POST", url: "/liveops/jokers/duo/toggle", headers: adminHeaders() });
     expect(t.json()).toMatchObject({ version: 2, jokers: { duo: { enabled: false } } });
-    const h = await app().inject({ method: "POST", url: "/liveops/happy-hour", payload: { enabled: true, global_mult: 2 } });
+    const h = await app().inject({ method: "POST", url: "/liveops/happy-hour", payload: { enabled: true, global_mult: 2 }, headers: adminHeaders() });
     expect(h.json()).toMatchObject({ version: 3, happy_hour: { enabled: true, global_mult: 2 }, jokers: { duo: { enabled: false } } });
-    expect((await app().inject({ method: "POST", url: "/liveops/jokers/nada/toggle" })).statusCode).toBe(404);
-    expect((await app().inject({ method: "POST", url: "/liveops/happy-hour", payload: { global_mult: 9 } })).statusCode).toBe(400);
+    expect((await app().inject({ method: "POST", url: "/liveops/jokers/nada/toggle", headers: adminHeaders() })).statusCode).toBe(404);
+    expect((await app().inject({ method: "POST", url: "/liveops/happy-hour", payload: { global_mult: 9 }, headers: adminHeaders() })).statusCode).toBe(400);
   });
 
   it("guarda aunque el broker esté caído y lo informa", async () => {
     pub.connected = false;
-    const res = await app().inject({ method: "PUT", url: "/liveops/ruleset", payload: body(1) });
+    const res = await app().inject({ method: "PUT", url: "/liveops/ruleset", payload: body(1), headers: adminHeaders() });
     expect(res.json()).toMatchObject({ version: 2, published: false });
   });
 
-  it("registra quién hizo el cambio a partir del JWT reenviado", async () => {
-    const token = `x.${Buffer.from(JSON.stringify({ alias: "Nicole" })).toString("base64url")}.y`;
-    await app().inject({ method: "PUT", url: "/liveops/ruleset", payload: body(1), headers: { authorization: `Bearer ${token}` } });
+  it("registra quién hizo el cambio a partir del JWT verificado", async () => {
+    await app().inject({ method: "PUT", url: "/liveops/ruleset", payload: body(1), headers: adminHeaders({ alias: "Nicole" }) });
     expect(repo.rows.at(-1)?.updated_by).toBe("Nicole");
     const hist = await app().inject({ method: "GET", url: "/liveops/ruleset/history" });
     expect(hist.json().versions.map((v: Ruleset) => v.version)).toEqual([2, 1]);
@@ -158,9 +159,9 @@ describe("API de liveops", () => {
 
   it("responde 503 si PostgreSQL está caído y /health lo refleja", async () => {
     repo.down = true;
-    const res = await app().inject({ method: "PUT", url: "/liveops/ruleset", payload: body(1) });
+    const res = await app().inject({ method: "PUT", url: "/liveops/ruleset", payload: body(1), headers: adminHeaders() });
     expect(res.statusCode).toBe(503);
-    const h = await buildApp(new LiveopsService(repo, cache, pub, silentLogger), { ...health, postgres: async () => "down" }).inject({ method: "GET", url: "/health" });
+    const h = await buildApp(new LiveopsService(repo, cache, pub, silentLogger), { ...health, postgres: async () => "down" }, guard).inject({ method: "GET", url: "/health" });
     expect(h.json()).toMatchObject({ status: "degraded", service: "liveops-rules-ms", deps: { postgres: "down" } });
   });
 });
