@@ -98,7 +98,7 @@ Copie las variables de `.env.remote.example` a `.env` (`GAME_DB_HOST`, `GAME_DB_
 ---
 
 ## 🎮 Cómo se juega
-1. Regístrate con un alias (sin contraseña).
+1. Regístrate con **usuario y contraseña** (mínimo 8 caracteres) o inicia sesión con tu cuenta.
 2. Crea una sala (meta 22 000 / 26 000 / 33 000, con o sin Bot) o únete con un código. Quien no es dueño de la sala entra como espectador.
 3. Selecciona hasta 5 cartas (clic o teclas `1–8`) y **Jugar mano** (`P`) o **Descartar** (`D`). Tienes 20 manos y 3 descartes; la baraja se recicla (las cartas jugadas y descartadas se rebarajan cuando el mazo se agota).
 4. Puntaje = `(fichas de la mano + fichas de las cartas que puntúan + 30 × descartes restantes) × ((mult de la mano + 4) × 2 si hay pareja)`. Ejemplo: Full House K♠K♥K♣4♦4♠ sin descartes = 78 × 16 = **1248**.
@@ -109,6 +109,11 @@ Copie las variables de `.env.remote.example` a `.env` (`GAME_DB_HOST`, `GAME_DB_
 ## 🧪 Pruebas
 
 ```bash
+# Verificación del despliegue P2: compose, contenedores, rutas del gateway (auth, lobby,
+# telemetría, ranking, admin), cliente web SSR y broker. Crea un usuario y una sala de prueba.
+bash scripts/verify_p2.sh          # sistema ya levantado
+bash scripts/verify_p2.sh --up     # lo levanta primero (build + wait)
+
 # Game Engine (Go) – dentro de un contenedor, contra el PostgreSQL del compose
 docker run --rm --network prototipo1_jokerarena-net -v "%cd%/jokerarena-game-ms:/src" -v gomodcache:/go/pkg/mod -w /src \
   -e TEST_DATABASE_URL="postgres://appuser:<password-url-encoded>@jokerarena-game-db:5432/appdb?sslmode=disable" \

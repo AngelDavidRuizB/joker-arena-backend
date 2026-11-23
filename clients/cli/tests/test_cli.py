@@ -34,13 +34,14 @@ def fake_gateway(monkeypatch, handler):
 def test_login_registers_or_falls_back_to_login(monkeypatch):
     def handler(req):
         if req.url.path == "/api/auth/register":
-            return httpx.Response(409, json={"error": "alias_taken", "message": "Ese alias ya existe: use /auth/login."})
-        return httpx.Response(200, json={"token": "T", "player": {"player_id": "p1", "alias": "Ana", "role": "player"}})
+            return httpx.Response(409, json={"error": "alias_taken", "message": "Ese usuario ya existe: inicia sesión con tu contraseña."})
+        return httpx.Response(200, json={"token": "T", "player": {"player_id": "p1", "alias": "Ana", "user": "Ana", "role": "player"}})
 
     calls = fake_gateway(monkeypatch, handler)
-    res = runner.invoke(app, ["login", "Ana"])
+    res = runner.invoke(app, ["login", "Ana", "--password", "secreta123"])
     assert res.exit_code == 0 and "Ana" in res.output
     assert [c.url.path for c in calls] == ["/api/auth/register", "/api/auth/login"]
+    assert json.loads(calls[0].content) == {"user": "Ana", "password": "secreta123"}
     assert json.loads(api.session_file().read_text())["token"] == "T"
 
 
