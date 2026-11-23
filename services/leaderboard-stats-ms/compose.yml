@@ -7,7 +7,6 @@
 services:
   jokerarena-leaderboard-stats-ms:
     build: .
-    container_name: jokerarena-leaderboard-stats-ms
     restart: unless-stopped
     environment:
       PORT: 8086
