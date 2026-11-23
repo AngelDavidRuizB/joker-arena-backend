@@ -272,56 +272,37 @@ def test_healthcheck_and_proxy_contracts() -> list[ChallengeResult]:
     return results
 
 # ==============================================================================
-# Challenge 4: Nginx Proxy Upstream Consistency
+# Challenge 4: API Gateway Upstream Consistency
 # ==============================================================================
 def test_nginx_upstream_consistency() -> list[ChallengeResult]:
+    """El API Gateway (nginx) es el único punto de entrada del backend.
+
+    El cliente web (Next.js SSR) vive en el repositorio joker-arena-frontend, por lo que
+    aquí se audita el gateway y no un nginx de frontend.
+    """
     results = []
-    nginx_conf_path = PROJECT_ROOT / "jokerarena-fe" / "nginx.conf"
+    nginx_conf_path = PROJECT_ROOT / "gateway" / "nginx.conf"
     if not nginx_conf_path.exists():
-        r = ChallengeResult("4.1 Nginx Config Existence")
-        r.fail("CRITICAL", "nginx.conf not found")
+        r = ChallengeResult("4.1 Gateway Config Existence")
+        r.fail("CRITICAL", "gateway/nginx.conf not found")
         return [r]
 
     content = nginx_conf_path.read_text(encoding="utf-8")
 
-    # Check REST proxy upstream
-    r_api = ChallengeResult("4.1 Nginx /api/ Proxy Upstream")
-    m_api = re.search(r"proxy_pass\s+http://([^/:]+):(\d+)(/[^;]*);", content)
-    if m_api:
-        host, port, path = m_api.groups()
-        if host == "jokerarena-game-ms" and port == "8080" and path == "/api/":
-            r_api.ok(f"Proxy pass correctly forwards to {host}:{port}{path}")
+    checks = [
+        ("4.1 Gateway upstream of /api/rooms", r"set \$lobby_svc\s+http://jokerarena-rooms-lobby-ms:8083;"),
+        ("4.2 Gateway upstream of /ws/", r"set \$engine_svc\s+http://jokerarena-game-engine-ms:8081;"),
+        ("4.3 Gateway upstream of /api/telemetry", r"set \$telemetry_svc\s+http://jokerarena-telemetry-ms:8085;"),
+        ("4.4 Gateway upstream of /api/auth", r"set \$auth_svc\s+http://jokerarena-auth-identity-ms:8082;"),
+        ("4.5 Gateway protects routes with auth_request", r"auth_request /_auth(_admin)?;"),
+    ]
+    for name, pattern in checks:
+        r = ChallengeResult(name)
+        if re.search(pattern, content):
+            r.ok("Upstream/guard verified in gateway/nginx.conf")
         else:
-            r_api.fail("HIGH", f"Mismatched /api/ upstream: {host}:{port}{path}")
-    else:
-        r_api.fail("HIGH", "Could not locate proxy_pass for /api/ in nginx.conf")
-    results.append(r_api)
-
-    # Check WebSocket proxy upstream
-    r_ws = ChallengeResult("4.2 Nginx /ws/ Proxy Upstream")
-    m_ws = re.search(r"location /ws/\s*\{[^}]*proxy_pass\s+http://([^/:]+):(\d+)(/[^;]*);", content, re.DOTALL)
-    if m_ws:
-        host, port, path = m_ws.groups()
-        if host == "jokerarena-game-ms" and port == "8080" and path == "/ws/":
-            r_ws.ok(f"WebSocket proxy pass correctly forwards to {host}:{port}{path}")
-        else:
-            r_ws.fail("HIGH", f"Mismatched /ws/ upstream: {host}:{port}{path}")
-    else:
-        r_ws.fail("HIGH", "Could not locate proxy_pass for /ws/ in nginx.conf")
-    results.append(r_ws)
-
-    # Check Telemetry proxy upstream
-    r_tel = ChallengeResult("4.3 Nginx /telemetry/ Proxy Upstream")
-    m_tel = re.search(r"location /telemetry/\s*\{[^}]*proxy_pass\s+http://([^/:]+):(\d+)(/[^;]*);", content, re.DOTALL)
-    if m_tel:
-        host, port, path = m_tel.groups()
-        if host == "jokerarena-telemetry-ms" and port == "8000" and path == "/":
-            r_tel.ok(f"Telemetry proxy pass correctly forwards to {host}:{port}{path}")
-        else:
-            r_tel.fail("HIGH", f"Mismatched /telemetry/ upstream: {host}:{port}{path}")
-    else:
-        r_tel.fail("HIGH", "Could not locate proxy_pass for /telemetry/ in nginx.conf")
-    results.append(r_tel)
+            r.fail("HIGH", f"Missing in gateway/nginx.conf: {pattern}")
+        results.append(r)
 
     return results
 

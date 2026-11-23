@@ -47,7 +47,7 @@ Thumbs.db
 *.docx
 *.pdf
 
-# Sub-repository frontend
-jokerarena-fe/
+# Sub-repositorios de clientes
+# (el cliente web SSR vive en ../joker-arena-frontend)
 .agents/
 tmp_*.json

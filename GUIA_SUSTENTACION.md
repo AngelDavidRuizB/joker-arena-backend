@@ -55,5 +55,5 @@ docker compose exec jokerarena-telemetry-db mongosh -u admin -p "<clave>" --auth
 
 ## 5. Plan B si algo falla
 - Un puerto ocupado: cambiar el puerto en `.env` y `docker compose up -d`.
-- El frontend no carga: `docker compose logs jokerarena-fe`; verificar `curl localhost:3000/health`.
+- El frontend no carga: en el repositorio `joker-arena-frontend`, `docker compose logs jokerarena-web-ssr`; verificar `curl localhost:3000/api/health`.
 - Sin Docker: mostrar `go test ./...` (en contenedor), `npm test` y capturas del flujo.

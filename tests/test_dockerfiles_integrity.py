@@ -96,38 +96,21 @@ def test_telemetry_ms_dockerfile():
     assert env_vars.get("PYTHONDONTWRITEBYTECODE") == "1", "PYTHONDONTWRITEBYTECODE must be 1"
     print(f"[OK] Environment variables verified: PYTHONDONTWRITEBYTECODE={env_vars.get('PYTHONDONTWRITEBYTECODE')}")
 
-def test_frontend_dockerfile():
-    print("\n--- Probing jokerarena-fe/Dockerfile ---")
-    df_path = PROJECT_ROOT / "jokerarena-fe" / "Dockerfile"
-    assert df_path.exists(), f"{df_path} does not exist"
-    instructions = parse_dockerfile(df_path)
+def test_frontend_lives_in_its_own_repository():
+    """El cliente web (Next.js SSR) vive en el repositorio joker-arena-frontend.
 
-    froms = [args for inst, args in instructions if inst == "FROM"]
-    assert len(froms) == 2
-    assert "node:20-alpine" in froms[0]  # node:22-alpine fails with 'exec format error' on some Docker Desktop hosts
-    assert "nginx:1.27-alpine" in froms[1]
-    print(f"[OK] Multistage builder/runtime declared: {froms}")
-
-    assert (PROJECT_ROOT / "jokerarena-fe" / "package.json").exists(), "package.json missing"
-    assert (PROJECT_ROOT / "jokerarena-fe" / "nginx.conf").exists(), "nginx.conf missing"
-    print("[OK] Frontend manifests and nginx.conf exist on host")
-
-    copy_builder = [args for inst, args in instructions if inst == "COPY" and "--from=builder" in args]
-    assert len(copy_builder) == 1
-    assert "/app/dist" in copy_builder[0] and "/usr/share/nginx/html" in copy_builder[0]
-    print(f"[OK] Multistage static asset handoff verified: {copy_builder[0]}")
+    Este repositorio (backend) no publica frontend: solo microservicios, gateway y CLI.
+    """
+    print("\n--- Checking the backend repository ships no web frontend ---")
+    for legacy in ("jokerarena-fe", "jokerarena-frontend", Path("clients") / "web-ssr"):
+        legacy_path = PROJECT_ROOT / legacy
+        assert not legacy_path.exists(), f"{legacy_path} must not exist (frontend lives in joker-arena-frontend)"
+    assert (PROJECT_ROOT / "clients" / "cli").exists(), "clients/cli (CLI Python) is expected to stay here"
+    print("[OK] No web frontend in the backend repository; only clients/cli remains")
 
 def test_dockerignore_audit():
     print("\n--- Auditing .dockerignore Boundary Files ---")
-    # 1. Frontend .dockerignore
-    fe_ignore = PROJECT_ROOT / "jokerarena-fe" / ".dockerignore"
-    assert fe_ignore.exists(), "jokerarena-fe/.dockerignore is missing"
-    fe_content = fe_ignore.read_text(encoding="utf-8")
-    assert "node_modules" in fe_content, "jokerarena-fe/.dockerignore must ignore node_modules"
-    assert "dist" in fe_content, "jokerarena-fe/.dockerignore must ignore dist"
-    print("[OK] jokerarena-fe/.dockerignore verified")
-
-    # 2. Telemetry .dockerignore
+    # 1. Telemetry .dockerignore
     te_ignore = PROJECT_ROOT / "jokerarena-telemetry-ms" / ".dockerignore"
     assert te_ignore.exists(), "jokerarena-telemetry-ms/.dockerignore is missing"
     te_content = te_ignore.read_text(encoding="utf-8")
@@ -135,7 +118,7 @@ def test_dockerignore_audit():
     assert "*.pyc" in te_content, "jokerarena-telemetry-ms/.dockerignore must ignore *.pyc"
     print("[OK] jokerarena-telemetry-ms/.dockerignore verified")
 
-    # 3. Game Engine .dockerignore
+    # 2. Game Engine .dockerignore
     ge_ignore = PROJECT_ROOT / "jokerarena-game-ms" / ".dockerignore"
     assert ge_ignore.exists(), "jokerarena-game-ms/.dockerignore is missing"
     ge_content = ge_ignore.read_text(encoding="utf-8")
@@ -146,7 +129,7 @@ if __name__ == "__main__":
     try:
         test_game_ms_dockerfile()
         test_telemetry_ms_dockerfile()
-        test_frontend_dockerfile()
+        test_frontend_lives_in_its_own_repository()
         test_dockerignore_audit()
         print("\nALL DOCKERFILE INTEGRITY AUDITS PASSED (100%).")
         sys.exit(0)

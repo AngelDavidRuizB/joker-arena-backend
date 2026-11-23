@@ -45,4 +45,4 @@ Configuración: `gateway/nginx.conf`.
 | game-engine-ms → liveops-rules-ms | `GET /liveops/ruleset` (ruleset vigente al arrancar) |
 | game-engine-ms → auth-identity-ms | `GET /.well-known/jwks.json` (llaves para validar el JWT) |
 | gateway → auth-identity-ms | `GET /auth/verify` (validación de rutas protegidas) |
-| web-ssr (servidor) → gateway | las mismas rutas públicas, con el JWT de la cookie `ja_token` |
+| cliente web SSR (repo `joker-arena-frontend`) → gateway | las mismas rutas públicas, con el JWT de la cookie `ja_token` |
