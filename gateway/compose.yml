@@ -1,11 +1,13 @@
 # API Gateway (Esteban Andrés Gómez Álvarez) · incluido desde docker-compose.p2.yml
 # En P3: conectado a edge-net (hacia reverse-proxy) y app-net (hacia microservicios).
-# Puertos cerrados al host; la entrada externa es el reverse proxy (puertos 80 y 443).
+# Puerto 8080 publicado temporalmente en el host hasta que se integre el Reverse Proxy de Esteban.
 services:
   jokerarena-gateway:
     build: .
     container_name: jokerarena-gateway
     restart: unless-stopped
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
     networks:
       - edge-net
       - app-net

@@ -36,7 +36,7 @@ El patrón aísla las cargas de trabajo de acuerdo a su función de negocio y cr
 |---|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `jokerarena-reverse-proxy` | Borde TLS / Proxy | **X** | | | | | | |
 | `jokerarena-gateway` | Enrutador API / WS | **X** | **X** | | | | | |
-| `jokerarena-web-ssr` | Front-end Web | **X** | **X** | | | | | |
+| `jokerarena-web-ssr` | Front-end Web | **X** | | | | | | |
 | `jokerarena-auth-identity-ms` | Identidad / JWT | | **X** | **X** | **X** | **X** | | |
 | `jokerarena-rooms-lobby-ms` | Gestión de Salas | | **X** | **X** | **X** | | | |
 | `jokerarena-game-engine-ms` | Motor de Juego | | **X** | **X** | **X** | | | |
@@ -75,7 +75,7 @@ El patrón aísla las cargas de trabajo de acuerdo a su función de negocio y cr
 - **Qué hace cada cambio:**
   - **`docker-compose.yml` / `docker-compose.p2.yml`**: Define la topología de 7 redes Docker con `driver: bridge`, aplicando `internal: true` a todas las redes internas y de persistencia (`app-net`, `broker-net`, `pg-net`, `redis-net`, `mongo-net`, `neo4j-net`), dejando únicamente `edge-net` con conectividad externa para el Reverse Proxy. Retira los mapeos de puertos (`ports:`) hacia el host de `jokerarena-postgres` (`5432`), `jokerarena-mongo` (`27017`), `jokerarena-neo4j` (`7474`), `jokerarena-rabbitmq` (`15672`) y preserva intactos todos los volúmenes de datos (`p2-pgdata`, `p2-mongodata`, etc.).
   - **`docker-compose.debug.yml`**: Archivo complementario para desarrolladores que expone los puertos de depuración de Neo4j (`7474`, `7687`), RabbitMQ (`15672`), Postgres (`5432`), Redis (`6379`), Mongo (`27017`), Gateway (`8080`) y Web (`3000`) cuando se requiere inspeccionar bases de datos o consolas en entorno local (`docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d`).
-  - **`gateway/compose.yml` y `clients/web-ssr/compose.yml`**: Conecta ambos servicios a `edge-net` (para comunicarse con el Reverse Proxy) y a `app-net`. Elimina la publicación de puertos de host (`8080` y `3000`).
+  - **`gateway/compose.yml` y `clients/web-ssr/compose.yml`**: Conecta el gateway a `edge-net` y `app-net`, y el front-end web (`clients/web-ssr`) exclusivamente a `edge-net` según el contrato de despliegue. Mantiene temporalmente publicados los puertos `8080` y `3000` en el host para permitir acceso al juego mientras se integra el Reverse Proxy de Esteban (los cuales se cerrarán definitivamente una vez integrado el RP).
   - **`services/bot-ai-ms/compose.yml`**: Asigna el servicio únicamente a `app-net`.
   - **`services/*/compose.yml`**: Asigna a cada microservicio estrictamente las redes de datos y mensajería que consume en su lógica de negocio sin duplicar definiciones de redes.
   - **`.env.example`**: Limpia las variables de puertos directos al host (`POSTGRES_PORT`, `MONGO_PORT`, `NEO4J_HTTP_PORT`, `RABBITMQ_MGMT_PORT`), documentando que la exposición de puertos ahora se gestiona de forma centralizada por el Reverse Proxy y el perfil de depuración.

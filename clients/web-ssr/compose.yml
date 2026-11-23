@@ -1,6 +1,6 @@
 # web-ssr (Jose Arturo Herrera Rivera) · incluido desde docker-compose.p2.yml
-# En P3: conectado a edge-net (hacia reverse-proxy) y app-net.
-# Puerto 3000 retirado del host (acceso público exclusivo por reverse-proxy en 80/443).
+# En P3: conectado únicamente a edge-net (hacia reverse-proxy y gateway).
+# Puerto 3000 publicado temporalmente en el host hasta que se integre el Reverse Proxy de Esteban.
 services:
   jokerarena-web-ssr:
     build:
@@ -11,9 +11,10 @@ services:
     restart: unless-stopped
     environment:
       GATEWAY_INTERNAL_URL: http://jokerarena-gateway:8080
+    ports:
+      - "${WEB_PORT:-3000}:3000"
     depends_on:
       jokerarena-gateway:
         condition: service_healthy
     networks:
       - edge-net
-      - app-net
