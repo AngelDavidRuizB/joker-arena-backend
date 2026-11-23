@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from .config import Settings, settings as default_settings
 from .events import Publisher, RabbitPublisher
 from .keys import SigningKey
+from .passwords import hash_password, password_policy_error, verify_password
 from .store import AliasTaken, PlayerStore, PostgresPlayerStore, RedisSessionStore, SessionStore
 
 log = logging.getLogger("auth")
@@ -29,9 +30,21 @@ class ApiError(Exception):
         self.status, self.code, self.message = status, code, message
 
 
-class AliasBody(BaseModel):
-    alias: str
+class AuthBody(BaseModel):
+    """Cuerpo de /auth/register y /auth/login.
+
+    El campo canónico es ``user`` (el nombre de usuario); ``alias`` se sigue aceptando por
+    compatibilidad con clientes anteriores. ``repeat_password`` es opcional y, si llega,
+    debe coincidir con ``password`` (el formulario de registro la envía).
+    """
+
+    user: Optional[str] = None
+    alias: Optional[str] = None
     password: Optional[str] = None
+    repeat_password: Optional[str] = None
+
+    def username(self) -> str:
+        return (self.user or self.alias or "").strip()
 
 
 class Services:
@@ -42,9 +55,9 @@ class Services:
 def validate_alias(raw: str) -> str:
     alias = (raw or "").strip()
     if not ALIAS_RE.match(alias):
-        raise ApiError(400, "invalid_alias", "El alias debe tener 2 a 30 caracteres: letras, números, '_' o '-'.")
+        raise ApiError(400, "invalid_alias", "El usuario debe tener 2 a 30 caracteres: letras, números, '_' o '-'.")
     if alias.lower() in RESERVED:
-        raise ApiError(400, "reserved_alias", "Ese alias está reservado.")
+        raise ApiError(400, "reserved_alias", "Ese usuario está reservado.")
     return alias
 
 
@@ -59,6 +72,10 @@ def create_app(services: Optional[Services] = None, cfg: Settings = default_sett
                 PostgresPlayerStore(cfg.postgres_url), RedisSessionStore(cfg.redis_url),
                 publisher, SigningKey.load_or_create(cfg.key_file), cfg,
             )
+            try:
+                await app.state.svc.players.ensure_schema()
+            except Exception as exc:  # noqa: BLE001 - /health reporta la caída de PostgreSQL
+                log.warning("no se pudo preparar auth.players (contraseñas): %s", exc)
         yield
         svc = app.state.svc
         for closer in (getattr(svc.players, "close", None), getattr(svc.sessions, "close", None), getattr(svc.publisher, "close", None)):
@@ -77,7 +94,10 @@ def create_app(services: Optional[Services] = None, cfg: Settings = default_sett
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(_: Request, exc: RequestValidationError):
-        return JSONResponse(status_code=400, content={"error": "invalid_request", "message": "Cuerpo inválido: se espera {\"alias\": \"...\"}."})
+        return JSONResponse(status_code=400, content={
+            "error": "invalid_request",
+            "message": "Cuerpo inválido: se espera {\"user\": \"...\", \"password\": \"...\"}.",
+        })
 
     def svc(request: Request) -> Services:
         return request.app.state.svc
@@ -89,7 +109,8 @@ def create_app(services: Optional[Services] = None, cfg: Settings = default_sett
                   "iat": now, "exp": now + s.cfg.token_ttl_seconds, "jti": jti}
         token = jwt.encode(claims, s.key.private_pem, algorithm="RS256", headers={"kid": s.key.kid})
         return {"token": token, "token_type": "Bearer", "expires_in": s.cfg.token_ttl_seconds, "jti": jti,
-                "player": {"player_id": player.player_id, "alias": player.alias, "role": player.role}}
+                "player": {"player_id": player.player_id, "alias": player.alias, "user": player.alias,
+                           "role": player.role}}
 
     async def start_session(s: Services, out: dict) -> None:
         try:
@@ -114,26 +135,67 @@ def create_app(services: Optional[Services] = None, cfg: Settings = default_sett
             raise ApiError(401, "invalid_credentials", "El usuario admin requiere la contraseña de administración.")
         return "admin"
 
+    def require_username(body: AuthBody) -> str:
+        user = body.username()
+        if not user:
+            raise ApiError(400, "invalid_request",
+                           "Escribe el usuario: se espera {\"user\": \"...\", \"password\": \"...\"}.")
+        return user
+
+    def require_password(body: AuthBody, check_policy: bool = True) -> str:
+        password = body.password or ""
+        if not password:
+            raise ApiError(400, "invalid_password", "Escribe una contraseña.")
+        if check_policy:
+            problem = password_policy_error(password)
+            if problem:
+                raise ApiError(400, "invalid_password", problem)
+        return password
+
     @app.post("/auth/register", status_code=201)
-    async def register(body: AliasBody, s: Services = Depends(svc)):
-        alias = validate_alias(body.alias)
-        role = check_admin(s, alias, body.password)
+    async def register(body: AuthBody, s: Services = Depends(svc)):
+        """Crea la cuenta (usuario + contraseña) y abre sesión.
+
+        La contraseña se guarda como hash PBKDF2-SHA256 en ``auth.players.password_hash``.
+        Un usuario que existía sin contraseña (datos anteriores) la adopta al registrarse
+        de nuevo: así las cuentas viejas siguen funcionando.
+        """
+        alias = validate_alias(require_username(body))
+        password = require_password(body)
+        if body.repeat_password is not None and body.repeat_password != password:
+            raise ApiError(400, "password_mismatch", "La contraseña y su repetición no coinciden.")
+        role = check_admin(s, alias, password)
+        password_hash = hash_password(password)
         try:
-            player = await store_call(s.players.create(alias, role))
+            player = await store_call(s.players.create(alias, role, password_hash))
+            created = True
         except AliasTaken:
-            raise ApiError(409, "alias_taken", "Ese alias ya existe: use /auth/login.")
-        await s.publisher.publish("auth.player.registered", {"player_id": player.player_id, "alias": player.alias})
+            player = await store_call(s.players.attach_password(alias, password_hash))
+            if player is None:
+                raise ApiError(409, "alias_taken", "Ese usuario ya existe: inicia sesión con tu contraseña.")
+            created = False
+        if created:
+            await s.publisher.publish("auth.player.registered", {"player_id": player.player_id, "alias": player.alias})
         out = issue(s, player)
         await start_session(s, out)
         return out
 
     @app.post("/auth/login")
-    async def login(body: AliasBody, s: Services = Depends(svc)):
-        alias = validate_alias(body.alias)
-        check_admin(s, alias, body.password)
+    async def login(body: AuthBody, s: Services = Depends(svc)):
+        """Verifica usuario y contraseña contra el hash guardado y emite el JWT."""
+        alias = validate_alias(require_username(body))
+        password = require_password(body, check_policy=False)
+        check_admin(s, alias, password)
         player = await store_call(s.players.by_alias(alias))
         if player is None:
-            raise ApiError(404, "player_not_found", "No existe un jugador con ese alias: use /auth/register.")
+            raise ApiError(404, "player_not_found", "No existe un usuario con ese nombre: regístrate primero.")
+        if alias.lower() != "admin":
+            if not player.password_hash:
+                raise ApiError(401, "password_not_set",
+                               "Esta cuenta aún no tiene contraseña: regístrate otra vez con el mismo usuario "
+                               "para crearla.")
+            if not verify_password(password, player.password_hash):
+                raise ApiError(401, "invalid_credentials", "Usuario o contraseña incorrectos.")
         out = issue(s, player)
         await start_session(s, out)
         return out
@@ -158,7 +220,8 @@ def create_app(services: Optional[Services] = None, cfg: Settings = default_sett
     @app.get("/auth/me")
     async def me(authorization: Optional[str] = Header(default=None), s: Services = Depends(svc)):
         claims = await current_claims(s, authorization)
-        return {"player_id": claims["sub"], "alias": claims["alias"], "role": claims["role"], "expires_at": claims["exp"]}
+        return {"player_id": claims["sub"], "alias": claims["alias"], "user": claims["alias"],
+                "role": claims["role"], "expires_at": claims["exp"]}
 
     @app.post("/auth/logout", status_code=204)
     async def logout(authorization: Optional[str] = Header(default=None), s: Services = Depends(svc)):

@@ -14,6 +14,7 @@ class Player:
     alias: str
     role: str
     created_at: datetime
+    password_hash: Optional[str] = None
 
 
 class AliasTaken(Exception):
@@ -21,7 +22,9 @@ class AliasTaken(Exception):
 
 
 class PlayerStore(Protocol):
-    async def create(self, alias: str, role: str) -> Player: ...
+    async def ensure_schema(self) -> None: ...
+    async def create(self, alias: str, role: str, password_hash: Optional[str] = None) -> Player: ...
+    async def attach_password(self, alias: str, password_hash: str) -> Optional[Player]: ...
     async def by_alias(self, alias: str) -> Optional[Player]: ...
     async def by_id(self, player_id: str) -> Optional[Player]: ...
     async def ping(self) -> None: ...
@@ -35,6 +38,21 @@ class SessionStore(Protocol):
 
 
 class PostgresPlayerStore:
+    # DDL idempotente: se aplica al arrancar para que un volumen creado antes del
+    # registro con contraseña reciba la columna password_hash sin recrear la base.
+    SCHEMA_STATEMENTS = (
+        "CREATE TABLE IF NOT EXISTS auth.players ("
+        " player_id UUID PRIMARY KEY,"
+        " alias VARCHAR(30) NOT NULL,"
+        " role VARCHAR(10) NOT NULL DEFAULT 'player' CHECK (role IN ('player', 'admin')),"
+        " password_hash TEXT,"
+        " created_at TIMESTAMPTZ NOT NULL DEFAULT now()"
+        ")",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_auth_players_alias ON auth.players (lower(alias))",
+        "ALTER TABLE auth.players ADD COLUMN IF NOT EXISTS password_hash TEXT",
+    )
+    COLUMNS = "player_id, alias, role, created_at, password_hash"
+
     def __init__(self, dsn: str):
         self.dsn = dsn
         self.pool: Optional[asyncpg.Pool] = None
@@ -46,24 +64,40 @@ class PostgresPlayerStore:
 
     @staticmethod
     def _row(r) -> Player:
-        return Player(str(r["player_id"]), r["alias"], r["role"], r["created_at"])
+        return Player(str(r["player_id"]), r["alias"], r["role"], r["created_at"], r["password_hash"])
 
-    async def create(self, alias: str, role: str) -> Player:
+    async def ensure_schema(self) -> None:
+        pool = await self._pool()
+        async with pool.acquire() as conn:
+            for statement in self.SCHEMA_STATEMENTS:
+                await conn.execute(statement)
+
+    async def create(self, alias: str, role: str, password_hash: Optional[str] = None) -> Player:
         pool = await self._pool()
         try:
             r = await pool.fetchrow(
-                "INSERT INTO auth.players (player_id, alias, role) VALUES ($1, $2, $3) "
-                "RETURNING player_id, alias, role, created_at",
-                uuid.uuid4(), alias, role,
+                f"INSERT INTO auth.players (player_id, alias, role, password_hash) VALUES ($1, $2, $3, $4) "
+                f"RETURNING {self.COLUMNS}",
+                uuid.uuid4(), alias, role, password_hash,
             )
         except asyncpg.UniqueViolationError as exc:
             raise AliasTaken(alias) from exc
         return self._row(r)
 
+    async def attach_password(self, alias: str, password_hash: str) -> Optional[Player]:
+        """Fija la contraseña de una cuenta legacy (sin hash). None si ya tenía una."""
+        pool = await self._pool()
+        r = await pool.fetchrow(
+            f"UPDATE auth.players SET password_hash = $2 "
+            f"WHERE lower(alias) = lower($1) AND password_hash IS NULL RETURNING {self.COLUMNS}",
+            alias, password_hash,
+        )
+        return self._row(r) if r else None
+
     async def by_alias(self, alias: str) -> Optional[Player]:
         pool = await self._pool()
         r = await pool.fetchrow(
-            "SELECT player_id, alias, role, created_at FROM auth.players WHERE lower(alias) = lower($1)", alias
+            f"SELECT {self.COLUMNS} FROM auth.players WHERE lower(alias) = lower($1)", alias
         )
         return self._row(r) if r else None
 
@@ -73,7 +107,7 @@ class PostgresPlayerStore:
         except ValueError:
             return None
         pool = await self._pool()
-        r = await pool.fetchrow("SELECT player_id, alias, role, created_at FROM auth.players WHERE player_id = $1", pid)
+        r = await pool.fetchrow(f"SELECT {self.COLUMNS} FROM auth.players WHERE player_id = $1", pid)
         return self._row(r) if r else None
 
     async def ping(self) -> None:

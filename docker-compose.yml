@@ -133,29 +133,9 @@ services:
       - jokerarena-net
 
   # ----------------------------------------------------------------------------
-  # 5. Presentación: Web Frontend Client (React / TypeScript / Nginx)
+  # 5. Presentación: el cliente web (React/Next.js SSR) se movió a su propio
+  #    repositorio `joker-arena-frontend`: este backend ya no publica frontend.
   # ----------------------------------------------------------------------------
-  jokerarena-fe:
-    build:
-      context: ./jokerarena-fe
-      dockerfile: Dockerfile
-    container_name: jokerarena-fe
-    restart: unless-stopped
-    ports:
-      - "${FRONTEND_PORT:-3000}:80"
-    depends_on:
-      jokerarena-game-ms:
-        condition: service_started
-      jokerarena-telemetry-ms:
-        condition: service_started
-    healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 5s
-    networks:
-      - jokerarena-net
 
 networks:
   jokerarena-net:

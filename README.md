@@ -1,6 +1,6 @@
 # JokerArena: Multiverse Poker Engine 🃏
 
-> **Prototipo 2 (vigente):** arquitectura de microservicios — 8 servicios de lógica en 5 lenguajes, API Gateway, RabbitMQ, PostgreSQL + MongoDB + Redis + Neo4j, web con SSR y CLI.
+> **Prototipo 2 (vigente):** arquitectura de microservicios — 8 servicios de lógica en 5 lenguajes, API Gateway, RabbitMQ, PostgreSQL + MongoDB + Redis + Neo4j y CLI. El cliente web (Next.js con SSR) vive en su propio repositorio: [joker-arena-frontend](https://github.com/AngelDavidRuizB/joker-arena-frontend).
 > Documento de entrega: [`docs/p2/p2_2b.md`](docs/p2/p2_2b.md) · Contratos: [`contracts/`](contracts/)
 >
 > ```bash
@@ -9,7 +9,7 @@
 > bash scripts/verify_p2.sh
 > ```
 >
-> Juego: http://localhost:3000 · Gateway: http://localhost:8080 · Administración: alias `admin` + `ADMIN_PASSWORD`.
+> Gateway: http://localhost:8080 · Juego: http://localhost:3000 (cliente web SSR, repo aparte) · Administración: alias `admin` + `ADMIN_PASSWORD`.
 >
 > | Servicio | Lenguaje | Carpeta |
 > |---|---|---|
@@ -22,7 +22,7 @@
 > | liveops-rules-ms | TypeScript | `services/liveops-rules-ms` |
 > | cluster-monitor-ms | Go | `services/cluster-monitor-ms` |
 > | API Gateway | nginx | `gateway/` |
-> | web-ssr · cli | Next.js · Python | `clients/` |
+> | cli | Python | `clients/cli` |
 >
 > Lo que sigue documenta el **Prototipo 1**, que se conserva sin cambios (`docker-compose.yml`, `jokerarena-game-ms/`, `jokerarena-telemetry-ms/`).
 
@@ -39,7 +39,7 @@ Videojuego web distribuido de póker con *Jokers* en tiempo real, inspirado en l
 
 ```mermaid
 graph TD
-    FE["jokerarena-fe · React + TS + Tailwind + Framer Motion (Nginx :3000)"]
+    FE["cliente web · React + TS (repo joker-arena-frontend :3000)"]
     GE["jokerarena-game-ms · Go · REST + WebSocket :8080"]
     TM["jokerarena-telemetry-ms · Python FastAPI :8000 / gRPC :50051"]
     PG[("PostgreSQL 16 · appdb :5432")]
@@ -54,7 +54,7 @@ graph TD
 
 | Servicio | Tecnología | Responsabilidad |
 |---|---|---|
-| `jokerarena-fe` | React 18, Vite, TypeScript, Tailwind, Framer Motion, Zustand | Interfaz neón: registro, lobby, tapete, cascada de puntuación y auditoría en vivo. Nginx hace de proxy mismo-origen (`/api`, `/ws`, `/telemetry`). |
+| cliente web (repo `joker-arena-frontend`) | Next.js 14 (SSR), React 18, TypeScript, Tailwind, Framer Motion, Zustand | Interfaz neón: registro, lobby, tapete, cascada de puntuación, auditoría y consola admin. Vive fuera de este repositorio; su servidor Next llama al gateway por la red interna. |
 | `jokerarena-game-ms` | Go 1.22, `gorilla/websocket`, `pgx/v5` | Motor **autoritativo**: una goroutine por sala (patrón actor), baraja con semilla, evaluador de manos, Jokers, persistencia. |
 | `jokerarena-telemetry-ms` | Python 3.12, FastAPI, Motor, gRPC | Ingesta de eventos de mano (REST y gRPC) en MongoDB, `/health` y `/docs`. |
 | `jokerarena-game-db` | PostgreSQL 16 | Esquema del equipo: `players`, `rooms`, `matches` (`db/postgres/create_db.sql`). |
@@ -76,7 +76,7 @@ docker compose ps           # los 5 servicios deben quedar "healthy"
 
 | Componente | URL |
 |---|---|
-| Aplicación web | http://localhost:3000 |
+| Aplicación web (repo `joker-arena-frontend`) | http://localhost:3000 |
 | Game Engine | http://localhost:8080/health · `ws://localhost:8080/ws/{code}` |
 | Telemetría | http://localhost:8000/docs · http://localhost:8000/health · gRPC `localhost:50051` |
 | PostgreSQL | `localhost:5432` · BD `appdb` · usuario `appuser` |
@@ -98,7 +98,7 @@ Copie las variables de `.env.remote.example` a `.env` (`GAME_DB_HOST`, `GAME_DB_
 ---
 
 ## 🎮 Cómo se juega
-1. Regístrate con un alias (sin contraseña).
+1. Regístrate con **usuario y contraseña** (mínimo 8 caracteres) o inicia sesión con tu cuenta.
 2. Crea una sala (meta 22 000 / 26 000 / 33 000, con o sin Bot) o únete con un código. Quien no es dueño de la sala entra como espectador.
 3. Selecciona hasta 5 cartas (clic o teclas `1–8`) y **Jugar mano** (`P`) o **Descartar** (`D`). Tienes 20 manos y 3 descartes; la baraja se recicla (las cartas jugadas y descartadas se rebarajan cuando el mazo se agota).
 4. Puntaje = `(fichas de la mano + fichas de las cartas que puntúan + 30 × descartes restantes) × ((mult de la mano + 4) × 2 si hay pareja)`. Ejemplo: Full House K♠K♥K♣4♦4♠ sin descartes = 78 × 16 = **1248**.
@@ -109,13 +109,18 @@ Copie las variables de `.env.remote.example` a `.env` (`GAME_DB_HOST`, `GAME_DB_
 ## 🧪 Pruebas
 
 ```bash
+# Verificación del despliegue P2: compose, contenedores, rutas del gateway (auth, lobby,
+# telemetría, ranking, admin), cliente web SSR y broker. Crea un usuario y una sala de prueba.
+bash scripts/verify_p2.sh          # sistema ya levantado
+bash scripts/verify_p2.sh --up     # lo levanta primero (build + wait)
+
 # Game Engine (Go) – dentro de un contenedor, contra el PostgreSQL del compose
 docker run --rm --network prototipo1_jokerarena-net -v "%cd%/jokerarena-game-ms:/src" -v gomodcache:/go/pkg/mod -w /src \
   -e TEST_DATABASE_URL="postgres://appuser:<password-url-encoded>@jokerarena-game-db:5432/appdb?sslmode=disable" \
   golang:1.22-alpine sh -c "go vet ./... && go test ./... -count=1"
 
-# Frontend
-cd jokerarena-fe && npm ci && npm test && npm run build
+# Cliente web SSR (repositorio hermano, fuera de este backend)
+cd ../joker-arena-frontend && npm ci && npm run typecheck && npm test && npm run build
 
 # Integración / E2E Python (requiere el stack levantado)
 python -m venv .venv && .venv/Scripts/pip install -r tests/requirements.txt
@@ -135,7 +140,7 @@ Cobertura destacada: evaluador y puntuación (`internal/poker`, incluye el caso 
 │   └── mongo/mongo-init.js         # Inicialización de casino_games
 ├── jokerarena-game-ms/             # Go: config, db (pgx), models, poker, room (actor), handlers (REST + WS)
 ├── jokerarena-telemetry-ms/        # Python: FastAPI + gRPC + Motor
-├── jokerarena-fe/                  # React/TS (repositorio independiente)
+├── clients/cli/                    # CLI Python (el cliente web vive en joker-arena-frontend)
 ├── proto/telemetry.proto           # Contrato gRPC (C5)
 ├── tests/                          # Suites Python (integración, E2E, WebSocket)
 ├── docker-compose.yml · .env.example · .env.remote.example
@@ -143,6 +148,6 @@ Cobertura destacada: evaluador y puntuación (`internal/poker`, incluye el caso 
 └── GUIA_SUSTENTACION.md            # Guion de la sustentación
 ```
 
-Frontend: <https://github.com/AngelDavidRuizB/joker-arena-frontend>
+Frontend (SSR, Next.js): <https://github.com/AngelDavidRuizB/joker-arena-frontend>
 
 Desarrollado con fines académicos para la asignatura **Arquitectura de Software** (2026-II).
