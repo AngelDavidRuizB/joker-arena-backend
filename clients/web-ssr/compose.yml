@@ -1,4 +1,6 @@
 # web-ssr (Jose Arturo Herrera Rivera) · incluido desde docker-compose.p2.yml
+# En P3: conectado únicamente a edge-net (hacia reverse-proxy y gateway).
+# Puerto 3000 publicado temporalmente en el host hasta que se integre el Reverse Proxy de Esteban.
 services:
   jokerarena-web-ssr:
     build:
@@ -14,8 +16,5 @@ services:
     depends_on:
       jokerarena-gateway:
         condition: service_healthy
-    networks: [jokerarena-net]
-
-networks:
-  jokerarena-net:
-    name: jokerarena-net
+    networks:
+      - edge-net
