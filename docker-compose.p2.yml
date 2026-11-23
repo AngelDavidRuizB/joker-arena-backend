@@ -1,8 +1,9 @@
 # ==============================================================================
-# JokerArena - Prototipo 2 · Orquestación completa
+# JokerArena - Prototipo 3 · Orquestación completa
 # Infraestructura (este archivo) + cada servicio en su propio compose.yml (include).
-# Uso:  cp .env.example .env   (y completar las contraseñas)
-#       docker compose -f docker-compose.p2.yml up -d --build --wait
+# Segmentación de redes (Escenario 3 - C3): 7 redes con internal: true salvo edge-net.
+# Sin puertos publicados hacia el host (solo el Reverse Proxy expone 80 y 443).
+# Para desarrollo/depuración, ver: docker-compose.debug.yml
 # ==============================================================================
 name: jokerarena
 
@@ -37,8 +38,6 @@ services:
       GAME_DB_PASSWORD: ${GAME_DB_PASSWORD:?Defina GAME_DB_PASSWORD en .env}
       LIVEOPS_DB_PASSWORD: ${LIVEOPS_DB_PASSWORD:?Defina LIVEOPS_DB_PASSWORD en .env}
       MONITOR_DB_PASSWORD: ${MONITOR_DB_PASSWORD:?Defina MONITOR_DB_PASSWORD en .env}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - p2-pgdata:/var/lib/postgresql/data
       - ./db/postgres/init:/docker-entrypoint-initdb.d:ro
@@ -48,7 +47,8 @@ services:
       timeout: 5s
       retries: 20
       start_period: 10s
-    networks: [jokerarena-net]
+    networks:
+      - pg-net
 
   # --------------------------------------------------------------------------
   # Datos 2 · MongoDB (NoSQL documental): telemetría
@@ -61,8 +61,6 @@ services:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-admin}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Defina MONGO_ROOT_PASSWORD en .env}
       MONGO_INITDB_DATABASE: telemetry
-    ports:
-      - "${MONGO_PORT:-27017}:27017"
     volumes:
       - p2-mongodata:/data/db
       - ./db/mongo/init.js:/docker-entrypoint-initdb.d/init.js:ro
@@ -72,7 +70,8 @@ services:
       timeout: 10s
       retries: 20
       start_period: 15s
-    networks: [jokerarena-net]
+    networks:
+      - mongo-net
 
   # --------------------------------------------------------------------------
   # Datos 3 · Redis (NoSQL clave-valor): sesiones y cachés
@@ -89,7 +88,8 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-    networks: [jokerarena-net]
+    networks:
+      - redis-net
 
   # --------------------------------------------------------------------------
   # Datos 4 · Neo4j (NoSQL de grafos): ranking
@@ -101,8 +101,6 @@ services:
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?Defina NEO4J_PASSWORD en .env (mínimo 8 caracteres)}
       NEO4J_server_memory_heap_max__size: 512m
-    ports:
-      - "${NEO4J_HTTP_PORT:-7474}:7474"
     volumes:
       - p2-neo4jdata:/data
     healthcheck:
@@ -111,7 +109,8 @@ services:
       timeout: 5s
       retries: 40
       start_period: 20s
-    networks: [jokerarena-net]
+    networks:
+      - neo4j-net
 
   # --------------------------------------------------------------------------
   # Asíncrono · RabbitMQ (exchange topic jokerarena.events)
@@ -123,8 +122,6 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-jokerarena}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Defina RABBITMQ_PASSWORD en .env}
-    ports:
-      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
     volumes:
       - p2-rabbitdata:/var/lib/rabbitmq
     healthcheck:
@@ -133,11 +130,50 @@ services:
       timeout: 10s
       retries: 30
       start_period: 15s
-    networks: [jokerarena-net]
+    networks:
+      - broker-net
 
 networks:
-  jokerarena-net:
-    name: jokerarena-net
+  # 1. Borde / Externa (DMZ pública): Reverse Proxy, Gateway, Web SSR
+  edge-net:
+    name: edge-net
+    driver: bridge
+
+  # 2. Aplicación interna: comunicación entre microservicios
+  app-net:
+    name: app-net
+    driver: bridge
+    internal: true
+
+  # 3. Bus de eventos: RabbitMQ
+  broker-net:
+    name: broker-net
+    driver: bridge
+    internal: true
+
+  # 4. Datos relacionales: PostgreSQL
+  pg-net:
+    name: pg-net
+    driver: bridge
+    internal: true
+
+  # 5. Caché / Sesiones: Redis
+  redis-net:
+    name: redis-net
+    driver: bridge
+    internal: true
+
+  # 6. Datos documentales: MongoDB
+  mongo-net:
+    name: mongo-net
+    driver: bridge
+    internal: true
+
+  # 7. Grafos: Neo4j
+  neo4j-net:
+    name: neo4j-net
+    driver: bridge
+    internal: true
 
 volumes:
   p2-pgdata:
