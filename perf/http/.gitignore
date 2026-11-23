@@ -1,0 +1,5 @@
+# Certificados del banco de TLS (nunca se versionan)
+tls/certs/
+# Salidas completas de k6 (pesadas); los resúmenes JSON sí se versionan
+*.ndjson
+*.log

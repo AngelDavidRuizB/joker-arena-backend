@@ -1,0 +1,154 @@
+{
+    "metrics": {
+        "http_req_waiting": {
+            "p(99)": 129.83543600000007,
+            "avg": 79.12140939867687,
+            "min": 3.8818,
+            "med": 73.62785,
+            "max": 3931.953,
+            "p(90)": 100.8855,
+            "p(95)": 109.0829
+        },
+        "data_received": {
+            "rate": 3668844.9554522843,
+            "count": 110304353
+        },
+        "http_reqs": {
+            "count": 74702,
+            "rate": 2484.67126099907
+        },
+        "data_sent": {
+            "count": 3694492,
+            "rate": 122882.89599195437
+        },
+        "http_req_receiving": {
+            "p(99)": 6.689883000000166,
+            "avg": 0.3694053157880661,
+            "min": 0,
+            "med": 0,
+            "max": 88.6523,
+            "p(90)": 0.7403900000000008,
+            "p(95)": 1.2567
+        },
+        "http_req_blocked": {
+            "min": 0,
+            "med": 0,
+            "max": 185.6079,
+            "p(90)": 0,
+            "p(95)": 0,
+            "p(99)": 0,
+            "avg": 0.32737324168027626
+        },
+        "http_req_connecting": {
+            "avg": 0.028720707611576676,
+            "min": 0,
+            "med": 0,
+            "max": 21.2224,
+            "p(90)": 0,
+            "p(95)": 0,
+            "p(99)": 0
+        },
+        "iterations": {
+            "count": 74702,
+            "rate": 2484.67126099907
+        },
+        "ranking_cache_hit": {
+            "passes": 74693,
+            "fails": 9,
+            "value": 0.9998795212979572
+        },
+        "iteration_duration": {
+            "p(99)": 135.09844400000003,
+            "avg": 80.37570801852625,
+            "min": 6.4194,
+            "med": 74.3013,
+            "max": 4113.2434,
+            "p(90)": 102.21498000000001,
+            "p(95)": 110.51897999999998
+        },
+        "vus_max": {
+            "value": 200,
+            "min": 200,
+            "max": 200
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 74702,
+            "thresholds": {
+                "rate<0.01": false
+            },
+            "value": 0
+        },
+        "http_req_duration{expected_response:true}": {
+            "p(90)": 101.67352000000002,
+            "p(95)": 109.92617,
+            "p(99)": 133.31384400000044,
+            "avg": 79.63297913576582,
+            "min": 3.8818,
+            "med": 73.9751,
+            "max": 3931.953
+        },
+        "checks": {
+            "passes": 149404,
+            "fails": 0,
+            "value": 1
+        },
+        "http_req_duration": {
+            "p(99)": 133.31384400000044,
+            "avg": 79.63297913576582,
+            "min": 3.8818,
+            "med": 73.9751,
+            "max": 3931.953,
+            "p(90)": 101.67352000000002,
+            "p(95)": 109.92617,
+            "thresholds": {
+                "p(95)<500": false
+            }
+        },
+        "http_req_tls_handshaking": {
+            "avg": 0.23338803378758263,
+            "min": 0,
+            "med": 0,
+            "max": 135.9179,
+            "p(90)": 0,
+            "p(95)": 0,
+            "p(99)": 0
+        },
+        "http_req_sending": {
+            "avg": 0.14216442130063503,
+            "min": 0,
+            "med": 0,
+            "max": 50.2689,
+            "p(90)": 0.5260900000000008,
+            "p(95)": 0.7005949999999997,
+            "p(99)": 1.5295
+        },
+        "vus": {
+            "value": 200,
+            "min": 200,
+            "max": 200
+        }
+    },
+    "root_group": {
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {
+            "ranking responde 200": {
+                "fails": 0,
+                "name": "ranking responde 200",
+                "path": "::ranking responde 200",
+                "id": "d69edd92b2561d082a370fc3fa041dbb",
+                "passes": 74702
+            },
+            "ranking trae jugadores": {
+                "path": "::ranking trae jugadores",
+                "id": "3b8adebb1e0374f5a11d229258e48259",
+                "passes": 74702,
+                "fails": 0,
+                "name": "ranking trae jugadores"
+            }
+        },
+        "name": ""
+    }
+}

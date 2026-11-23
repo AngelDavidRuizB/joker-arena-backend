@@ -1,0 +1,31 @@
+# ==============================================================================
+# JokerArena P3 · D2 · Banco de prueba del costo de TLS (proyecto aparte)
+# No forma parte del sistema: se levanta solo para la prueba y se borra después.
+#
+#   bash perf/http/tls/gen_cert.sh
+#   docker compose -f perf/http/tls/compose.yml up -d
+#   ... pruebas contra http://localhost:18081 y https://localhost:18443 ...
+#   docker compose -f perf/http/tls/compose.yml down
+#
+# PERF_NET: red donde está jokerarena-gateway. P2: jokerarena-net · P3: app-net
+# (en el P3 el gateway no publica puertos; para el P3 real basta con medir
+#  https://localhost contra el reverse proxy).
+# ==============================================================================
+name: jokerarena-perf
+
+services:
+  jokerarena-perf-tls:
+    image: nginx:1.27-alpine
+    container_name: jokerarena-perf-tls
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    ports:
+      - "18081:8081"
+      - "18443:8443"
+    networks: [gw]
+
+networks:
+  gw:
+    name: ${PERF_NET:-jokerarena-net}
+    external: true
