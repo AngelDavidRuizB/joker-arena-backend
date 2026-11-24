@@ -1,8 +1,12 @@
 # jokerarena (CLI)
 
-Cliente de terminal. **Responsable:** José Alejandro Solano Garcés · **Python (Typer, httpx, Rich, websockets)**.
+Cliente de terminal. **Responsable:** José Alejandro Solano Garcés (actualizado a HTTPS/WSS por Ángel David Ruiz Barbosa en P3) · **Python (Typer, httpx, Rich, websockets)**.
 
-Habla **solo** con el API Gateway (`http://localhost:8080` o la variable `JOKERARENA_GATEWAY`). Guarda la sesión en `~/.jokerarena/session.json`.
+Habla **solo** con el borde seguro / API Gateway (`https://localhost` por defecto, o la variable `JOKERARENA_GATEWAY`). Guarda la sesión en `~/.jokerarena/session.json`.
+
+Para verificar los certificados TLS autofirmados de desarrollo:
+1. Genera la CA local desde la raíz del repositorio: `bash scripts/gen_certs.sh`.
+2. La CLI detecta automáticamente `edge/certs/jokerarena-ca.crt` (o puedes indicar otra ruta con `JOKERARENA_CA=/ruta/jokerarena-ca.crt`).
 
 ```bash
 pip install ./clients/cli
@@ -13,7 +17,7 @@ pip install ./clients/cli
 | `jokerarena login <usuario> [--password]` | Entra con usuario y contraseña (registra la cuenta si no existe) y guarda el token. Sin `--password` se pide oculto o se toma de `JOKERARENA_PASSWORD`. |
 | `jokerarena rooms list [--status all]` | Lista salas. |
 | `jokerarena rooms create [--solo] [--target 26000] [--difficulty hard]` | Crea una sala. |
-| `jokerarena watch <código>` | Sigue una partida en vivo por WebSocket. |
+| `jokerarena watch <código>` | Sigue una partida en vivo por WebSocket (`wss://`). |
 | `jokerarena leaderboard` | Ranking global (indica si vino de la caché de Redis). |
 | `jokerarena matches` · `jokerarena match <match_id>` | Partidas y auditoría mano a mano. |
 | `jokerarena ruleset` | Ruleset de LiveOps que el motor aplica ahora. |

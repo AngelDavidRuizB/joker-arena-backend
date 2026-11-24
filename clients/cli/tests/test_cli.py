@@ -1,4 +1,5 @@
 import json
+import ssl
 
 import httpx
 import pytest
@@ -14,6 +15,8 @@ ORIGINAL_INIT = api.Gateway.__init__
 @pytest.fixture(autouse=True)
 def home(tmp_path, monkeypatch):
     monkeypatch.setenv("JOKERARENA_HOME", str(tmp_path))
+    monkeypatch.delenv("JOKERARENA_GATEWAY", raising=False)
+    monkeypatch.delenv("JOKERARENA_CA", raising=False)
 
 
 def fake_gateway(monkeypatch, handler):
@@ -24,8 +27,8 @@ def fake_gateway(monkeypatch, handler):
         calls.append(request)
         return handler(request)
 
-    def init(self, base=None, token=None, transport=None):
-        ORIGINAL_INIT(self, base, token, httpx.MockTransport(wrapped))
+    def init(self, base=None, token=None, transport=None, verify=None):
+        ORIGINAL_INIT(self, base, token, httpx.MockTransport(wrapped), verify=verify)
 
     monkeypatch.setattr(api.Gateway, "__init__", init)
     return calls
@@ -79,3 +82,58 @@ def test_gateway_down(monkeypatch):
     fake_gateway(monkeypatch, boom)
     res = runner.invoke(app, ["leaderboard"])
     assert res.exit_code == 1 and "No se pudo contactar el gateway" in res.output
+
+
+def test_default_gateway_and_ws_url_use_https_and_wss(monkeypatch):
+    assert api.gateway_url() == "https://localhost"
+    assert api.ws_url("jkr-ab23", "t0k") == "wss://localhost/ws/JKR-AB23?token=t0k"
+
+    monkeypatch.setenv("JOKERARENA_GATEWAY", "http://localhost:8080/")
+    assert api.gateway_url() == "http://localhost:8080"
+    assert api.ws_url("jkr-ab23", "a b") == "ws://localhost:8080/ws/JKR-AB23?token=a%20b"
+
+
+def test_ca_bundle_env_and_missing_file(tmp_path, monkeypatch):
+    missing = tmp_path / "no-existe.crt"
+    monkeypatch.setenv("JOKERARENA_CA", str(missing))
+    with pytest.raises(api.CliError, match="gen_certs.sh"):
+        api.ca_bundle_path()
+
+    ca_file = tmp_path / "jokerarena-ca.crt"
+    ca_file.write_text("dummy", encoding="utf-8")
+    monkeypatch.setenv("JOKERARENA_CA", str(ca_file))
+    assert api.ca_bundle_path() == ca_file
+
+    # build_ssl_context intenta cargar el PEM en ssl.SSLContext; verificamos el rechazo de PEM inválido
+    with pytest.raises(ssl.SSLError):
+        api.build_ssl_context(ca_file)
+
+
+def test_ws_ssl_context_only_enabled_for_wss(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert api.ws_ssl_context("ws://localhost:8080/ws/JKR-ABCD?token=T") is None
+    ctx = api.ws_ssl_context("wss://localhost/ws/JKR-ABCD?token=T")
+    assert isinstance(ctx, ssl.SSLContext)
+
+
+def test_rooms_create_prints_https_web_url(monkeypatch):
+    api.save_session({"token": "T", "player_id": "p1", "alias": "Ana", "role": "player"})
+    fake_gateway(monkeypatch, lambda req: httpx.Response(201, json={"room_code": "JKR-XY23", "mode": "bot", "difficulty": "normal", "target_score": 22000}))
+    res = runner.invoke(app, ["rooms", "create"])
+    assert res.exit_code == 0
+    assert "https://localhost/room/JKR-XY23" in res.output
+    assert ":3000" not in res.output
+
+
+def test_tls_verification_error_shows_ca_hint(monkeypatch):
+    def tls_fail(req):
+        try:
+            raise ssl.SSLCertVerificationError(1, "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed")
+        except ssl.SSLCertVerificationError as ssl_exc:
+            raise httpx.ConnectError("TLS failed") from ssl_exc
+
+    fake_gateway(monkeypatch, tls_fail)
+    res = runner.invoke(app, ["leaderboard"])
+    assert res.exit_code == 1
+    assert "gen_certs.sh" in res.output
+    assert "JOKERARENA_CA" in res.output
