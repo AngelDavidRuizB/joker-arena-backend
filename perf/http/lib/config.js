@@ -41,6 +41,11 @@ export function opcionesCarga(nombre) {
   };
 }
 
+// Contraseña de los jugadores de prueba. Desde el P3 el registro y el login piden
+// {"user", "password"}; "alias" se envía también para que los scripts sigan
+// funcionando contra el P2, que solo leía ese campo.
+export const CLAVE_PRUEBA = 'perf-Clave-2026';
+
 /**
  * Registra un jugador respetando el límite del gateway en /api/auth/*
  * (10 por segundo por IP, ráfaga de 20). Reintenta si recibe 503 (límite).
@@ -48,7 +53,7 @@ export function opcionesCarga(nombre) {
 export function registrarJugador(http, sleep, prefijo) {
   for (let intento = 0; intento < 10; intento++) {
     const alias = `${prefijo}${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`.slice(0, 30);
-    const res = http.post(`${BASE_URL}/api/auth/register`, JSON.stringify({ alias }), {
+    const res = http.post(`${BASE_URL}/api/auth/register`, JSON.stringify({ user: alias, alias, password: CLAVE_PRUEBA }), {
       headers: { 'Content-Type': 'application/json' },
       tags: { name: 'setup_register' },
     });
