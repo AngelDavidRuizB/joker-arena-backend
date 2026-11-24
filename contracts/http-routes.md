@@ -1,12 +1,29 @@
 # Contrato de rutas del API Gateway
 
-Único punto de entrada: **`http://localhost:8080`** (contenedor `jokerarena-gateway`, nginx).
-Configuración: `gateway/nginx.conf`.
+Único punto de entrada (P3): **`https://localhost`** (contenedor `jokerarena-reverse-proxy`, nginx).
+Es el único contenedor con puertos publicados en el host:
+
+- `443`: HTTPS y WSS (TLS 1.2/1.3, HSTS). Certificados locales: `bash scripts/gen_certs.sh`
+  (CA en `edge/certs/jokerarena-ca.crt`, fuera de git).
+- `80`: solo redirige con `301` a `https://`.
+- `/api/*`, `/ws/*`, `/admin/*` (salvo la página `/admin` de la web) y `/health` van al API
+  Gateway por `edge-net`; el resto (`/`) va al cliente web (`jokerarena-web-ssr:3000`, repo
+  `joker-arena-frontend`).
+- El proxy no revela la versión de nginx (`server_tokens off`), agrega cabeceras de seguridad y
+  corta las peticiones demasiado grandes (`413`, cuerpo > 64 KB) o lentas (`408`).
+- Envía `X-Forwarded-For`, `X-Real-IP` y `X-Forwarded-Proto`; el gateway recupera la IP real
+  (`real_ip_header`), así que el límite de `/api/auth/*` sigue siendo por cliente.
+
+El API Gateway (`jokerarena-gateway`, `gateway/nginx.conf`) ya no publica el `8080` en el host:
+solo se llega a él a través del reverse proxy (para depurar: `docker-compose.debug.yml`).
+Las rutas de las tablas son las mismas que en el P2; solo cambia el origen
+(`http://localhost:8080` → `https://localhost`).
+Configuración del proxy: `edge/reverse-proxy/` (`nginx.conf`, `conf.d/10-tls.conf`, `locations.conf`).
 
 - **Autenticación:** las rutas marcadas con JWT hacen una subpetición a `auth-identity-ms` (`GET /auth/verify`) antes de enrutar. Sin token → `401`; rol insuficiente → `403`.
 - **Token:** `Authorization: Bearer <jwt>`. En WebSockets los navegadores no envían cabeceras, así que el token va en `?token=<jwt>`.
 - **Errores del gateway:** misma forma que los servicios: `{"error": "<codigo>", "message": "<texto>"}` (`401 unauthorized`, `403 forbidden`, `503 service_unavailable`, `404 not_found`).
-- **CORS:** orígenes `http://localhost:*` y `tauri://localhost`.
+- **CORS:** orígenes `http(s)://localhost:*` y `tauri://localhost`.
 - **Límite:** `/api/auth/*` admite 10 peticiones por segundo por IP (ráfaga de 20).
 
 ### Cuerpos de autenticación (`/api/auth/*`)
@@ -52,7 +69,7 @@ POST /api/auth/login      {"user": "JokerPro99", "password": "secreta123"}
 
 `bot-ai-ms` no se publica: solo lo llama `game-engine-ms` dentro de la red.
 
-## Llamadas internas (dentro de `jokerarena-net`)
+## Llamadas internas (dentro de `app-net`)
 
 | Origen → destino | Petición |
 |---|---|

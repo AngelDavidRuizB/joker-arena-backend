@@ -17,6 +17,7 @@ include:
   - services/liveops-rules-ms/compose.yml
   - services/cluster-monitor-ms/compose.yml
   - gateway/compose.yml
+  - edge/reverse-proxy/compose.yml
 
 services:
   # --------------------------------------------------------------------------
