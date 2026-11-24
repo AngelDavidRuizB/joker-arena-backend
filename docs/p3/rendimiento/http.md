@@ -35,6 +35,11 @@ repetir las pruebas está en [`perf/http/README.md`](../../../perf/http/README.m
    keepalive, HTTPS suma entre 0,4 y 5,7 ms al p50, dentro de la variación de la
    medición. TLS solo cuesta cuando cada petición abre una conexión nueva: el handshake
    promedia entre 8 y 45 ms y la capacidad cae un 30–65 %.
+6. **D1 sobre el P3 completo (`https://localhost`, con reverse proxy y TLS) no tiene
+   errores en ningún nivel.** El ranking con caché da 1.857–2.643 peticiones/s, sin
+   caché ~334 y salas ~480. Para lograrlo hubo que corregir el reverse proxy, que tenía
+   el mismo problema de puertos que el gateway: sin la corrección, por HTTPS fallaba
+   entre el 26 % y el 84 % de las peticiones ya con 10 usuarios (sección 7.4).
 
 ## 2. Máquina y entorno (D5)
 
@@ -259,6 +264,26 @@ Se validó con `nginx -t` (con y sin la red de Docker) y con pruebas a mano:
 Como `gateway/nginx.conf` es de Esteban (y en el P3 también lo tocan Esteban con
 `real_ip` y Santiago con `/_auth_ws`), va en un PR aparte para que él lo revise.
 
+### 5.1 El mismo problema en el reverse proxy del P3
+
+Al correr D1 sobre `https://localhost` con el reverse proxy del Escenario 2 recién
+unido, el ranking con caché falló entre el **26 % y el 84 %** de las peticiones ya con
+10 usuarios. El log del proxy tenía decenas de miles de líneas iguales a las del
+gateway:
+
+```
+[crit] 26#26: connect() to 172.26.0.2:8080 failed (99: Address not available)
+while connecting to upstream, client: 172.26.0.1, ...
+```
+
+y el contenedor tenía **28.240** conexiones en `TIME_WAIT`. La causa es la misma: el
+proxy usaba `proxy_pass` con variables (`set $gateway http://jokerarena-gateway:8080`) y
+abría una conexión TCP nueva hacia el gateway en cada petición. La corrección (PR #20)
+es la misma de la sección anterior: grupos `upstream` con `keepalive` y `resolve` en
+`edge/reverse-proxy/nginx.conf`. Con ella, el ranking por HTTPS con 100 usuarios pasó a
+2.843 peticiones/s, 0 % de errores y solo 3 conexiones en `TIME_WAIT`. Los resultados
+de D1 sobre el P3 (sección 7.4) son con el proxy corregido.
+
 ## 6. Antes y después de la corrección
 
 Para medir la corrección sin reconstruir el stack, se copió el `nginx.conf` corregido
@@ -401,6 +426,53 @@ reutilización:
 - `ssl_session_cache` para que los clientes que vuelven reanuden la sesión sin
   handshake completo (ya está en la configuración de Ángel).
 
+### 7.4 D1 completo sobre HTTPS (P3 con reverse proxy)
+
+Sesión `perf/http/resultados/20261123-2215` (22:15–22:50, 37 corridas), sobre `main`
+con todos los escenarios unidos: reverse proxy con TLS (escenarios 1 y 2), 7 redes
+(escenario 3), bloqueo de cuenta (escenario 4) y autorización en LiveOps (escenario 5).
+La entrada es `https://localhost`: k6 → reverse proxy (TLS) → gateway → servicios.
+Mismos scripts, niveles, duración y repeticiones que la sección 4.
+
+| Configuración | Usuarios | Peticiones/s | p50 (ms) | p95 (ms) | p99 (ms) | Errores | Desde caché |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Ranking con caché | 10 | 1.856,9 | 4,77 | 8,38 | 13,52 | 0 % | 100 % |
+| Ranking con caché | 50 | 2.149,2 | 21,69 | 32,16 | 46,91 | 0 % | 99,9 % |
+| Ranking con caché | 100 | 2.243,8 | 42,38 | 60,91 | 78,21 | 0 % | 100 % |
+| Ranking con caché | 200 | 2.642,5 | 72,08 | 106,21 | 160,97 | 0 % | 100 % |
+| Ranking sin caché | 10 | 250,3 | 35,85 | 61,94 | 83,33 | 0 % | 0 % |
+| Ranking sin caché | 50 | 333,6 | 136,84 | 252,74 | 338,17 | 0 % | 0 % |
+| Ranking sin caché | 100 | 334,3 | 269,40 | 484,13 | 641,03 | 0 % | 0 % |
+| Ranking sin caché | 200 | 333,6 | 570,31 | 874,07 | 2.134,26 | 0 % | 0 % |
+| Salas (con JWT) | 10 | 477,5 | 16,75 | 24,83 | 30,47 | 0 % | — |
+| Salas (con JWT) | 50 | 485,6 | 86,18 | 104,78 | 114,60 | 0 % | — |
+| Salas (con JWT) | 100 | 475,3 | 173,40 | 206,89 | 230,21 | 0 % | — |
+| Salas (con JWT) | 200 | 477,4 | 344,42 | 428,35 | 463,30 | 0 % | — |
+
+![Peticiones por segundo en D1 sobre HTTPS](../../../perf/http/resultados/20261123-2215/graficas/d1_rps.png)
+
+![Latencia p95 en D1 sobre HTTPS](../../../perf/http/resultados/20261123-2215/graficas/d1_p95.png)
+
+**Límite del login por HTTPS:** de 801 intentos en 20 s se aceptaron **220** (20 + 10
+por segundo × 20 s) y 581 recibieron 503, igual que por HTTP. Esto confirma que el
+gateway sigue contando por la IP real del cliente detrás del proxy (`real_ip`). El p95
+del login sube a 3 s porque en el P3 el login verifica la contraseña con PBKDF2, un
+cálculo lento a propósito (escenario 4), y las peticiones aceptadas hacen cola.
+
+**Comparación con HTTP (P2 con el gateway corregido, sesión `20261122-2237`):**
+
+- **Ranking con caché:** con HTTPS y el salto extra del proxy da entre un 10 y un 18 %
+  menos de peticiones por segundo con 10–100 usuarios (1.857 frente a 2.274 con 10) y un
+  p95 prácticamente igual (8,4 frente a 7,5 ms; 60,9 frente a 57,0 ms con 100). Con 200
+  usuarios incluso da un poco más (2.643 frente a 2.516). Es el orden de magnitud que
+  anticipaba D2 para TLS con conexiones reutilizadas.
+- **Ranking sin caché y salas:** quedan iguales a la primera sesión del P2 (sección 4):
+  sin caché ~334 frente a 312–332 peticiones/s, y salas ~480 frente a 487–508. Ahí el
+  límite lo ponen Neo4j y la validación del token, no TLS.
+
+Conclusión: con el proxy corregido, el P3 completo rinde como el P2 corregido: TLS y el
+salto extra del reverse proxy cuestan pocos milisegundos y no introducen errores.
+
 ## 8. Duración de las pruebas (D5)
 
 | Sesión | Contenido | Corridas | Tiempo bajo carga | Duración total |
@@ -408,6 +480,7 @@ reutilización:
 | `20261122-1958` (gateway del P2) | D1 (36 corridas), login (1) y D2 (52) | 89 | 88 × 30 s + 20 s ≈ 44 min | 19:58–22:12 (2 h 14 min) |
 | `20261122-2237` (gateway con keepalive) | D1 (36) y D2 (52) | 88 | 88 × 30 s = 44 min | 22:41–00:12 (1 h 31 min) |
 | `20261123-ab-gateway` | A/B de la sección 6.2 | 8 | 8 × 30 s = 4 min | 00:14–00:24 (10 min) |
+| `20261123-2215` (P3 completo, HTTPS) | D1 (36) y login (1) | 37 | 36 × 30 s + 20 s ≈ 18 min | 22:15–22:50 (35 min) |
 
 Cada corrida dura 30 s más 10 s de `gracefulStop` como máximo. La prueba del login dura
 20 s, más 3 s de arranque. El resto del tiempo es:
@@ -443,6 +516,10 @@ k6 run --quiet --summary-export perf/http/resultados/20261122-1958/d2-ranking-di
 k6 run --quiet --summary-export perf/http/resultados/20261122-1958/d2-ranking-proxy-http-v10-r1.json -e BASE_URL=http://localhost:18081 -e VUS=10 -e DURATION=30s -e MODO=proxy-http perf/http/ranking.js
 k6 run --quiet --summary-export perf/http/resultados/20261122-1958/d2-ranking-proxy-https-v10-r1.json -e BASE_URL=https://localhost:18443 -e VUS=10 -e DURATION=30s -e MODO=proxy-https perf/http/ranking.js
 
+# D1 sobre el P3 completo (HTTPS), sesión 20261123-2215 (igual para sin-cache y salas)
+k6 run --quiet --summary-export perf/http/resultados/20261123-2215/d1-ranking-cache-v10-r1.json -e BASE_URL=https://localhost -e VUS=10 -e DURATION=30s -e MODO=cache perf/http/ranking.js
+k6 run --summary-export d1-login-limite-rate40.json -e BASE_URL=https://localhost -e RATE=40 -e DURATION=20s perf/http/login_limite.js
+
 # D2 · peor caso, una conexión (y un handshake TLS) por petición
 k6 run --quiet --summary-export perf/http/resultados/20261122-1958/d2-ranking-noreuse-proxy-https-v10-r1.json -e BASE_URL=https://localhost:18443 -e VUS=10 -e DURATION=30s -e MODO=proxy-https -e NO_REUSE=1 perf/http/ranking.js
 ```
@@ -461,11 +538,12 @@ python perf/http/resumir.py perf/http/resultados/<fecha>
 
 ## 10. Limitaciones y cambios frente al plan
 
-- **D1 se midió sobre el P2 (`http://localhost:8080`), no sobre el P3.** El reverse
-  proxy con TLS (Escenario 1) todavía no está unido a `p3`. Cuando esté, hay que
-  repetir D1 y el login sobre HTTPS, sin cambiar los scripts:
+- **D1 se midió dos veces:** sobre el P2 (`http://localhost:8080`, sección 4) y sobre
+  el P3 completo (`https://localhost`, sección 7.4). La sesión del P3 se corrió con:
   `powershell -ExecutionPolicy Bypass -File perf/http/run_http.ps1 -BaseUrl https://localhost -Pruebas d1,login`.
-  Según D2, la diferencia esperada es de pocos milisegundos.
+- **Cambio en la API del login.** El escenario 4 hizo que `/api/auth/register` y
+  `/api/auth/login` pidan `{"user", "password"}`. Los scripts envían usuario, alias y una
+  contraseña de prueba, así funcionan contra el P2 y contra el P3.
 - **D2 usa un banco de TLS propio** con la configuración TLS del Escenario 1, y no el
   reverse proxy definitivo. Así la única diferencia entre los dos modos es TLS. Si el
   proxy definitivo cambia algo importante (por ejemplo, no reutiliza conexiones hacia
@@ -485,9 +563,9 @@ python perf/http/resumir.py perf/http/resultados/<fecha>
 - **Datos de prueba en la base local.** Quedan los 1.000 jugadores y 4.000 partidas
   `perf-` en Neo4j, y los jugadores y salas de prueba en PostgreSQL. Los comandos de
   limpieza están en el README.
-- **La corrección del gateway no está unida.** Va en la rama
-  `p3-fix-gateway-keepalive` para que Esteban, dueño de `gateway/nginx.conf`, la revise.
-  Mientras no se una, las cifras oficiales del P2 son las de la sección 4.
+- **Correcciones unidas.** La del gateway (PR #10) y la del reverse proxy (PR #20)
+  están en `main`. Las cifras de la sección 4 son las del P2 tal como se entregó; las de
+  la sección 7.4 son las del P3 con ambas correcciones.
 
 ## 11. Conclusiones
 
@@ -513,5 +591,8 @@ python perf/http/resumir.py perf/http/resultados/<fecha>
 5. **HTTPS es prácticamente gratis si se reutilizan conexiones.** Con keepalive el
    costo de TLS se queda en pocos milisegundos, dentro de la variación de la medición.
    Sin reutilización, cada petición paga un handshake de 8–45 ms y la capacidad cae un
-   30–65 %. El reverse proxy del P3 debe mantener `keepalive` hacia el gateway y la
-   caché de sesiones TLS.
+   30–65 %. El P3 completo lo confirma: con el reverse proxy corregido (`keepalive`
+   hacia el gateway), D1 por HTTPS no tiene errores y el ranking con caché rinde entre
+   un 10 y un 18 % menos que por HTTP, con casi el mismo p95. Sin esa corrección el
+   proxy repetía el error de puertos del gateway y fallaba desde 10 usuarios: cada
+   salto nginx del sistema debe reutilizar conexiones.
