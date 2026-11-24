@@ -51,3 +51,6 @@ Thumbs.db
 # (el cliente web SSR vive en ../joker-arena-frontend)
 .agents/
 tmp_*.json
+
+# Certificados TLS locales (scripts/gen_certs.sh): incluye la llave privada de la CA
+edge/certs/

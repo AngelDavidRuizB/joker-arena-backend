@@ -1,0 +1,18 @@
+# Reverse Proxy (Escenario 2) · incluido desde docker-compose.p2.yml
+# Único servicio con puertos publicados en el host (80 y 443). Solo en edge-net.
+# Certificados: generarlos antes con `bash scripts/gen_certs.sh` (edge/certs/, fuera de git).
+services:
+  jokerarena-reverse-proxy:
+    build: .
+    container_name: jokerarena-reverse-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ../certs:/etc/nginx/certs:ro
+    depends_on:
+      jokerarena-gateway:
+        condition: service_healthy
+    networks:
+      - edge-net

@@ -17,6 +17,7 @@ include:
   - services/liveops-rules-ms/compose.yml
   - services/cluster-monitor-ms/compose.yml
   - gateway/compose.yml
+  - edge/reverse-proxy/compose.yml
   # El cliente web (Next.js SSR) vive en su propio repositorio:
   # ../joker-arena-frontend (docker compose up -d --build --wait, red jokerarena-net).
 
