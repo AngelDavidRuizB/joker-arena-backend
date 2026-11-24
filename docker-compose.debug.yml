@@ -1,7 +1,11 @@
 # ==============================================================================
 # JokerArena - Modo Depuración Local (Opcional)
 # Uso: docker compose -f docker-compose.p2.yml -f docker-compose.debug.yml up -d
-# Permite exponer temporalmente las interfaces de gestión y bases de datos en localhost.
+# Publica en localhost las interfaces de gestión y las bases de datos para depurar.
+#
+# En P3 los puertos publicados son solo los del borde (reverse proxy 80/443 y, mientras
+# no se integre, el gateway 8080). El cliente web (Next.js SSR) vive en su propio
+# repositorio y publica 3000 con su propio compose.yml: aquí no se declara.
 # ==============================================================================
 name: jokerarena
 
@@ -30,7 +34,3 @@ services:
   jokerarena-gateway:
     ports:
       - "8080:8080"
-
-  jokerarena-web-ssr:
-    ports:
-      - "3000:3000"
