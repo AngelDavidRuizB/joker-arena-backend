@@ -16,7 +16,7 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Counter } from 'k6/metrics';
-import { BASE_URL, MODO, registrarJugador } from './lib/config.js';
+import { BASE_URL, CLAVE_PRUEBA, MODO, registrarJugador } from './lib/config.js';
 
 const RATE = Number(__ENV.RATE || 40);
 const DURATION = __ENV.DURATION || '20s';
@@ -51,7 +51,7 @@ export function setup() {
 }
 
 export default function (data) {
-  const res = http.post(`${BASE_URL}/api/auth/login`, JSON.stringify({ alias: data.alias }), {
+  const res = http.post(`${BASE_URL}/api/auth/login`, JSON.stringify({ user: data.alias, alias: data.alias, password: CLAVE_PRUEBA }), {
     headers: { 'Content-Type': 'application/json' },
     tags: { name: 'POST /api/auth/login' },
     // 503 es la respuesta esperada del límite: no se cuenta como fallo de k6.
