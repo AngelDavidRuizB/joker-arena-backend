@@ -1,0 +1,15 @@
+﻿{
+    "hilos":  12,
+    "ram_gib":  23.7,
+    "so":  "Microsoft Windows 11 Home Single Language (build 26200)",
+    "fecha":  "2026-11-23 22:15",
+    "docker_kernel":  "6.18.33.2-microsoft-standard-WSL2",
+    "docker_mem_gib":  11.5,
+    "cpu":  "13th Gen Intel(R) Core(TM) i5-13420H",
+    "nucleos":  8,
+    "k6":  "k6.exe v2.4.0 (commit/dd9395906d, go1.26.11, windows/amd64)",
+    "docker":  "Docker Desktop, Engine 29.6.1",
+    "docker_cpus":  "12",
+    "base_url":  "https://localhost",
+    "duracion_corrida":  "30s"
+}
