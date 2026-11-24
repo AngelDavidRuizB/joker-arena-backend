@@ -9,6 +9,22 @@ Configuración: `gateway/nginx.conf`.
 - **CORS:** orígenes `http://localhost:*` y `tauri://localhost`.
 - **Límite:** `/api/auth/*` admite 10 peticiones por segundo por IP (ráfaga de 20).
 
+### Cuerpos de autenticación (`/api/auth/*`)
+
+```json
+POST /api/auth/register   {"user": "JokerPro99", "password": "secreta123", "repeat_password": "secreta123"}
+POST /api/auth/login      {"user": "JokerPro99", "password": "secreta123"}
+```
+
+- `user`: nombre de usuario, 2–30 caracteres (`letras`, números, `_`, `-`). `alias` se acepta como sinónimo.
+- `password`: mínimo 8 y máximo 72 caracteres. Se guarda como hash `pbkdf2_sha256` en `auth.players.password_hash`; nunca se devuelve ni se registra.
+- `repeat_password` (solo registro): si llega, debe coincidir con `password` (`400 password_mismatch`).
+- Registro: `201 {token, player}` · `409 alias_taken` (ya existe con contraseña) · `400 invalid_password` · `503 store_unavailable`.
+- Login: `200 {token, player}` · `401 invalid_credentials` (usuario o contraseña incorrectos) · `404 player_not_found` · `401 password_not_set` (cuenta anterior sin contraseña: vuelve a registrarte con el mismo usuario para crearla).
+- El usuario reservado `admin` exige además `ADMIN_PASSWORD` (registro y login).
+- Bloqueo: tras `AUTH_MAX_FAILED_ATTEMPTS` (5) fallos de credenciales en login **o** registro, la cuenta queda bloqueada `AUTH_LOCKOUT_MINUTES` (15) minutos → `423 account_locked` + cabecera `Retry-After` (segundos) en ambos endpoints. Un login correcto reinicia el contador.
+- Vigencia del token: **12 h** para `player` y **30 min** para `admin` (`AUTH_ADMIN_TOKEN_TTL_SECONDS`); `expires_in` y el claim `exp` reflejan el valor aplicado.
+
 | Ruta pública | Método | Servicio → ruta interna | Auth |
 |---|---|---|---|
 | `/health` | GET | gateway | pública |
@@ -45,4 +61,4 @@ Configuración: `gateway/nginx.conf`.
 | game-engine-ms → liveops-rules-ms | `GET /liveops/ruleset` (ruleset vigente al arrancar) |
 | game-engine-ms → auth-identity-ms | `GET /.well-known/jwks.json` (llaves para validar el JWT) |
 | gateway → auth-identity-ms | `GET /auth/verify` (validación de rutas protegidas) |
-| web-ssr (servidor) → gateway | las mismas rutas públicas, con el JWT de la cookie `ja_token` |
+| cliente web SSR (repo `joker-arena-frontend`) → gateway | las mismas rutas públicas, con el JWT de la cookie `ja_token` |

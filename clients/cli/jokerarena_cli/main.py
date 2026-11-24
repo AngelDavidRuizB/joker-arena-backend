@@ -1,6 +1,7 @@
 """jokerarena: cliente de terminal de JokerArena (Prototipo 3)."""
 import asyncio
 import json
+import os
 import ssl
 from typing import Optional
 
@@ -44,10 +45,12 @@ def run(fn):
 
 
 @app.command()
-def login(alias: str, password: Optional[str] = typer.Option(None, help="Solo para el usuario admin.")):
-    """Entra con un alias (lo registra si no existe) y guarda el token."""
+def login(alias: str, password: Optional[str] = typer.Option(None, "--password", "-p",
+          help="Contraseña del usuario (si no se indica, se pide oculta o se toma de JOKERARENA_PASSWORD).")):
+    """Entra con usuario y contraseña (registra la cuenta si no existe) y guarda el token."""
     def go():
-        res = Gateway().enter(alias, password)
+        secret = password or os.getenv("JOKERARENA_PASSWORD") or typer.prompt("Contraseña", hide_input=True)
+        res = Gateway().enter(alias, secret)
         save_session({"token": res["token"], **res["player"]})
         console.print(f"[bold green]✓[/] Sesión iniciada como [cyan]{res['player']['alias']}[/] ({res['player']['role']}) en {gateway_url()}")
     run(go)

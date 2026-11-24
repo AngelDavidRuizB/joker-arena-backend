@@ -14,7 +14,7 @@ pip install ./clients/cli
 
 | Comando | Qué hace |
 |---|---|
-| `jokerarena login <alias> [--password]` | Entra (o se registra) y guarda el token. `admin` requiere contraseña. |
+| `jokerarena login <usuario> [--password]` | Entra con usuario y contraseña (registra la cuenta si no existe) y guarda el token. Sin `--password` se pide oculto o se toma de `JOKERARENA_PASSWORD`. |
 | `jokerarena rooms list [--status all]` | Lista salas. |
 | `jokerarena rooms create [--solo] [--target 26000] [--difficulty hard]` | Crea una sala. |
 | `jokerarena watch <código>` | Sigue una partida en vivo por WebSocket (`wss://`). |

@@ -1,5 +1,6 @@
 import pino from "pino";
 import { buildApp, type DepStatus } from "./app";
+import { createAdminGuard, JwksClient } from "./auth";
 import { AmqpPublisher, RedisRulesetCache } from "./infra";
 import { LiveopsService } from "./service";
 import { PostgresRulesetRepository } from "./store";
@@ -19,11 +20,14 @@ async function main(): Promise<void> {
       return "down";
     }
   };
+  const jwks = new JwksClient({ logger });
+  jwks.warmUp(); // en segundo plano: liveops arranca aunque auth todavía no esté listo
+  const requireAdmin = createAdminGuard({ keys: jwks, isRevoked: (jti) => cache.isRevoked(jti) });
   const app = buildApp(service, {
     postgres: () => ok(() => repo.ping()),
     redis: () => ok(() => cache.ping()),
     rabbitmq: async () => (publisher.connected ? "ok" : "down"),
-  }, logger);
+  }, requireAdmin, logger);
   await app.listen({ host: "0.0.0.0", port: Number(process.env.PORT ?? 8087) });
 
   const shutdown = async () => {

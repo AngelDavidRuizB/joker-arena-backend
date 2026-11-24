@@ -12,6 +12,7 @@ WEB="http://localhost:${WEB_PORT:-3000}"
 fail=0
 ok()   { printf '  \033[32m✔\033[0m %s\n' "$1"; }
 bad()  { printf '  \033[31m✘\033[0m %s\n' "$1"; fail=1; }
+warn() { printf '  \033[33m•\033[0m %s\n' "$1"; }
 
 echo "1. Configuración de compose"
 if $COMPOSE config -q; then ok "docker-compose.p2.yml es válido"; else bad "compose inválido"; exit 1; fi
@@ -27,7 +28,10 @@ for c in $($COMPOSE ps --format '{{.Name}}'); do
   case "$st" in *healthy*) [[ "$st" == *unhealthy* ]] && bad "$c: $st" || ok "$c: $st";; *) bad "$c: $st";; esac
 done
 n=$($COMPOSE ps --format '{{.Name}}' | wc -l)
-[ "$n" -ge 15 ] && ok "$n contenedores (8 lógica + gateway + web + 4 datos + broker)" || bad "se esperaban 15 contenedores, hay $n"
+# 14 = 8 servicios de lógica + gateway + 4 datos + broker. El cliente web (Next.js SSR)
+# vive en el repositorio joker-arena-frontend y se comprueba en el paso 5 si está arriba.
+[ "$n" -ge 14 ] && ok "$n contenedores (8 lógica + gateway + 4 datos + broker)" \
+  || bad "se esperaban al menos 14 contenedores, hay $n"
 
 echo "4. Rutas a través del gateway ($GW)"
 check() { # método ruta código-esperado [args curl...]
@@ -36,9 +40,14 @@ check() { # método ruta código-esperado [args curl...]
   [ "$got" = "$want" ] && ok "$m $p → $got" || bad "$m $p → $got (esperado $want)"
 }
 check GET /health 200
-alias="verify$RANDOM"
-token=$(curl -s -X POST "$GW/api/auth/register" -H 'Content-Type: application/json' -d "{\"alias\":\"$alias\"}" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
-[ -n "$token" ] && ok "POST /api/auth/register → token JWT" || bad "no se obtuvo token"
+user="verify$RANDOM"
+password="verify-pass-$RANDOM"
+token=$(curl -s -X POST "$GW/api/auth/register" -H 'Content-Type: application/json' \
+  -d "{\"user\":\"$user\",\"password\":\"$password\",\"repeat_password\":\"$password\"}" \
+  | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+[ -n "$token" ] && ok "POST /api/auth/register (usuario + contraseña) → token JWT" || bad "no se obtuvo token"
+check POST /api/auth/login 200 -H 'Content-Type: application/json' -d "{\"user\":\"$user\",\"password\":\"$password\"}"
+check POST /api/auth/login 401 -H 'Content-Type: application/json' -d "{\"user\":\"$user\",\"password\":\"contrasena-incorrecta\"}"
 check GET /api/auth/me 200 -H "Authorization: Bearer $token"
 check GET /api/rooms 401
 check GET /api/rooms 200 -H "Authorization: Bearer $token"
@@ -49,9 +58,34 @@ check GET /api/game/ruleset 200
 check GET /admin/liveops/ruleset 403 -H "Authorization: Bearer $token"
 check GET /admin/cluster/snapshot 403 -H "Authorization: Bearer $token"
 
-echo "5. Web SSR ($WEB)"
-code=$(curl -s -o /tmp/jkr_lb.html -w '%{http_code}' "$WEB/leaderboard")
-[ "$code" = "200" ] && grep -q "Salón de la fama" /tmp/jkr_lb.html && ok "/leaderboard renderizado en el servidor" || bad "/leaderboard → $code"
+# Bloqueo por intentos fallidos: 5 contraseñas erróneas → 423 account_locked + Retry-After
+lockuser="lock$RANDOM"
+lockpass="lockout-$RANDOM"
+curl -s -o /dev/null -X POST "$GW/api/auth/register" -H 'Content-Type: application/json' \
+  -d "{\"user\":\"$lockuser\",\"password\":\"$lockpass\",\"repeat_password\":\"$lockpass\"}"
+for _ in 1 2 3 4; do
+  curl -s -o /dev/null -X POST "$GW/api/auth/login" -H 'Content-Type: application/json' \
+    -d "{\"user\":\"$lockuser\",\"password\":\"mala-clave\"}"
+  sleep 0.2
+done
+locked=$(curl -s -D /tmp/jkr_lock.h -o /dev/null -w '%{http_code}' -X POST "$GW/api/auth/login" \
+  -H 'Content-Type: application/json' -d "{\"user\":\"$lockuser\",\"password\":\"mala-clave\"}")
+if [ "$locked" = "423" ] && grep -qi '^retry-after:' /tmp/jkr_lock.h; then
+  ok "5 intentos fallidos → 423 account_locked (Retry-After presente)"
+else
+  bad "bloqueo por intentos fallidos → $locked (esperado 423)"
+fi
+
+echo "5. Cliente web SSR ($WEB · repositorio joker-arena-frontend)"
+code=$(curl -s -o /tmp/jkr_lb.html -w '%{http_code}' --max-time 5 "$WEB/leaderboard")
+[ -z "$code" ] && code=000
+if [ "$code" = "000" ]; then
+  warn "cliente web no disponible en $WEB; se omite (cd ../joker-arena-frontend && docker compose up -d --build --wait)"
+elif [ "$code" = "200" ] && grep -q "Salón de la fama" /tmp/jkr_lb.html; then
+  ok "/leaderboard renderizado en el servidor"
+else
+  bad "/leaderboard → $code"
+fi
 
 echo "6. Broker"
 if $COMPOSE exec -T jokerarena-rabbitmq rabbitmqctl -q list_exchanges name | grep -q '^jokerarena.events$'; then ok "exchange jokerarena.events"; else bad "falta el exchange"; fi
@@ -60,5 +94,6 @@ for q in telemetry-ms.events leaderboard-stats-ms.players leaderboard-stats-ms.m
 done
 
 echo
+warn "datos de prueba creados: usuarios '$user' y '$lockuser' (este último con 5 fallos) y una sala en modo bot"
 [ $fail -eq 0 ] && echo "✅ Todo en orden." || echo "❌ Hay verificaciones fallidas (ver arriba)."
 exit $fail

@@ -15,6 +15,15 @@ Guarda el ruleset de los Jokers como **versiones append-only** en PostgreSQL, lo
 | GET | `/liveops/ruleset/history` | Últimas versiones (quién y cuándo). |
 | GET | `/health` | PostgreSQL, Redis, RabbitMQ. |
 
+## Seguridad (P3 · escenario 5, Zero Trust)
+
+El servicio no confía en la red interna: todo `PUT`/`POST` exige un JWT admin que **liveops verifica por su cuenta** (firma RS256 con el JWKS de `auth-identity-ms`, `iss`, `exp`, sesión no cerrada y `role = admin`). `401` sin token o inválido, `403` sin rol admin, `503` si auth no responde (fail closed). Los `GET` siguen abiertos (el motor lee el ruleset sin token). Las llaves se piden a `http://jokerarena-auth-identity-ms:8082/.well-known/jwks.json` con reintentos, sin depender del orden de arranque. Código: `src/auth.ts`.
+
+```bash
+# Desde otro contenedor de la red interna, sin token → 401
+docker run --rm --network app-net curlimages/curl -s -o /dev/null -w "%{http_code}\n" -X PUT http://jokerarena-liveops-rules-ms:8087/liveops/ruleset
+```
+
 ## Demo
 
 ```bash

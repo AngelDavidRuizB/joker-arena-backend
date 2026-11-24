@@ -26,6 +26,9 @@ CREATE TABLE IF NOT EXISTS game.matches (
     ended_at      TIMESTAMPTZ
 );
 
+ALTER TABLE game.matches ADD COLUMN IF NOT EXISTS progress JSONB;
+ALTER TABLE game.matches ADD COLUMN IF NOT EXISTS progress_at TIMESTAMPTZ;
+
 CREATE INDEX IF NOT EXISTS idx_game_matches_room ON game.matches (room_code, created_at DESC);
 
 RESET ROLE;

@@ -30,6 +30,10 @@ export class RedisRulesetCache implements RulesetCache {
   async ping(): Promise<void> {
     await this.client.ping();
   }
+  /** Sesión cerrada en auth (POST /auth/logout escribe auth:revoked:<jti>). */
+  async isRevoked(jti: string): Promise<boolean> {
+    return (await this.client.exists(`auth:revoked:${jti}`)) === 1;
+  }
   async close(): Promise<void> {
     this.client.disconnect();
   }

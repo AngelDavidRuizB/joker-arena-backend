@@ -11,6 +11,10 @@ services:
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-jokerarena}:${RABBITMQ_PASSWORD}@jokerarena-rabbitmq:5672/
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Defina ADMIN_PASSWORD en .env}
       JWT_KEY_FILE: /data/jwt_private_key.pem
+      # Bloqueo por intentos fallidos (login y registro) y vigencia del token de admin.
+      AUTH_MAX_FAILED_ATTEMPTS: ${AUTH_MAX_FAILED_ATTEMPTS:-5}
+      AUTH_LOCKOUT_MINUTES: ${AUTH_LOCKOUT_MINUTES:-15}
+      AUTH_ADMIN_TOKEN_TTL_SECONDS: ${AUTH_ADMIN_TOKEN_TTL_SECONDS:-1800}
     volumes:
       - p2-authkeys:/data
     depends_on:
@@ -20,11 +24,11 @@ services:
         condition: service_healthy
       jokerarena-rabbitmq:
         condition: service_healthy
-    networks: [jokerarena-net]
-
-networks:
-  jokerarena-net:
-    name: jokerarena-net
+    networks:
+      - app-net
+      - pg-net
+      - redis-net
+      - broker-net
 
 volumes:
   p2-authkeys:

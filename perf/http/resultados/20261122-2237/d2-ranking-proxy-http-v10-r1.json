@@ -1,0 +1,154 @@
+{
+    "metrics": {
+        "iterations": {
+            "rate": 2026.6973452800814,
+            "count": 60816
+        },
+        "http_req_waiting": {
+            "avg": 4.578059472836079,
+            "min": 0.7647,
+            "med": 4.0763,
+            "max": 80.4474,
+            "p(90)": 6.787599999999999,
+            "p(95)": 8.07395,
+            "p(99)": 12.230074999999989
+        },
+        "http_req_duration": {
+            "max": 80.4474,
+            "p(90)": 6.9123,
+            "p(95)": 8.204749999999999,
+            "p(99)": 12.413509999999985,
+            "avg": 4.674200494935489,
+            "min": 0.7647,
+            "med": 4.1657,
+            "thresholds": {
+                "p(95)<500": false
+            }
+        },
+        "http_req_sending": {
+            "avg": 0.019812863391212826,
+            "min": 0,
+            "med": 0,
+            "max": 5.6511,
+            "p(90)": 0,
+            "p(95)": 0,
+            "p(99)": 0.6408099999999991
+        },
+        "data_sent": {
+            "rate": 200643.03718272806,
+            "count": 6020784
+        },
+        "http_req_connecting": {
+            "med": 0,
+            "max": 1.5101,
+            "p(90)": 0,
+            "p(95)": 0,
+            "p(99)": 0,
+            "avg": 0.0002483063667455932,
+            "min": 0
+        },
+        "ranking_cache_hit": {
+            "passes": 60806,
+            "fails": 10,
+            "value": 0.9998355695869509
+        },
+        "iteration_duration": {
+            "min": 1.1708,
+            "med": 4.3886,
+            "max": 95.6375,
+            "p(90)": 7.2182,
+            "p(95)": 8.5593,
+            "p(99)": 12.7739,
+            "avg": 4.914575577150694
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 60816,
+            "thresholds": {
+                "rate<0.01": false
+            },
+            "value": 0
+        },
+        "vus_max": {
+            "min": 10,
+            "max": 10,
+            "value": 10
+        },
+        "vus": {
+            "value": 10,
+            "min": 10,
+            "max": 10
+        },
+        "http_req_tls_handshaking": {
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0,
+            "p(99)": 0
+        },
+        "checks": {
+            "passes": 121632,
+            "fails": 0,
+            "value": 1
+        },
+        "data_received": {
+            "count": 93048490,
+            "rate": 3100847.271529206
+        },
+        "http_reqs": {
+            "count": 60816,
+            "rate": 2026.6973452800814
+        },
+        "http_req_blocked": {
+            "p(90)": 0,
+            "p(95)": 0,
+            "p(99)": 0,
+            "avg": 0.007826415745856356,
+            "min": 0,
+            "med": 0,
+            "max": 14.4216
+        },
+        "http_req_receiving": {
+            "p(99)": 0.9992,
+            "avg": 0.07632815870823452,
+            "min": 0,
+            "med": 0,
+            "max": 7.1119,
+            "p(90)": 0.5096,
+            "p(95)": 0.5846
+        },
+        "http_req_duration{expected_response:true}": {
+            "p(99)": 12.413509999999985,
+            "avg": 4.674200494935489,
+            "min": 0.7647,
+            "med": 4.1657,
+            "max": 80.4474,
+            "p(90)": 6.9123,
+            "p(95)": 8.204749999999999
+        }
+    },
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {
+            "ranking responde 200": {
+                "name": "ranking responde 200",
+                "path": "::ranking responde 200",
+                "id": "d69edd92b2561d082a370fc3fa041dbb",
+                "passes": 60816,
+                "fails": 0
+            },
+            "ranking trae jugadores": {
+                "name": "ranking trae jugadores",
+                "path": "::ranking trae jugadores",
+                "id": "3b8adebb1e0374f5a11d229258e48259",
+                "passes": 60816,
+                "fails": 0
+            }
+        }
+    }
+}

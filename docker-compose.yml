@@ -1,166 +1,181 @@
 # ==============================================================================
-# JokerArena: Multiverse Poker Engine - Orquestación Docker Compose
-# Infraestructura de datos adoptada del equipo (docker-compose_2.yml):
-#   - PostgreSQL 16  -> appdb  / appuser (esquema create_db.sql)
-#   - MongoDB 7      -> casino_games / admin (mongo-init.js)
-# Todas las credenciales provienen de .env (ignorado por git). Ver .env.example.
-# Para usar el servidor remoto compartido, ver .env.remote.example.
+# JokerArena - Prototipo 3 · Orquestación completa
+# Infraestructura (este archivo) + cada servicio en su propio compose.yml (include).
+# Segmentación de redes (Escenario 3 - C3): 7 redes con internal: true salvo edge-net.
+# Sin puertos publicados hacia el host (solo el Reverse Proxy expone 80 y 443).
+# Para desarrollo/depuración, ver: docker-compose.debug.yml
 # ==============================================================================
+name: jokerarena
+
+include:
+  - services/auth-identity-ms/compose.yml
+  - services/rooms-lobby-ms/compose.yml
+  - services/game-engine-ms/compose.yml
+  - services/bot-ai-ms/compose.yml
+  - services/telemetry-ms/compose.yml
+  - services/leaderboard-stats-ms/compose.yml
+  - services/liveops-rules-ms/compose.yml
+  - services/cluster-monitor-ms/compose.yml
+  - gateway/compose.yml
+
 services:
-  # ----------------------------------------------------------------------------
-  # 1. Base de Datos Relacional: PostgreSQL 16 (Game Engine DB)
-  # ----------------------------------------------------------------------------
-  jokerarena-game-db:
-    image: postgres:16
-    container_name: jokerarena-game-db
+  # --------------------------------------------------------------------------
+  # Datos 1 · PostgreSQL (relacional): un esquema y un usuario por servicio
+  # --------------------------------------------------------------------------
+  jokerarena-postgres:
+    image: postgres:16-alpine
+    container_name: jokerarena-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-appuser}
+      POSTGRES_USER: ${POSTGRES_USER:-jokerarena}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD en .env}
-      POSTGRES_DB: ${POSTGRES_DB:-appdb}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      POSTGRES_DB: ${POSTGRES_DB:-jokerarena}
+      # Contraseñas de los usuarios por servicio (las usa db/postgres/init/00_schemas.sh)
+      AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD:?Defina AUTH_DB_PASSWORD en .env}
+      LOBBY_DB_PASSWORD: ${LOBBY_DB_PASSWORD:?Defina LOBBY_DB_PASSWORD en .env}
+      GAME_DB_PASSWORD: ${GAME_DB_PASSWORD:?Defina GAME_DB_PASSWORD en .env}
+      LIVEOPS_DB_PASSWORD: ${LIVEOPS_DB_PASSWORD:?Defina LIVEOPS_DB_PASSWORD en .env}
+      MONITOR_DB_PASSWORD: ${MONITOR_DB_PASSWORD:?Defina MONITOR_DB_PASSWORD en .env}
     volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./db/postgres/create_db.sql:/docker-entrypoint-initdb.d/create_db.sql:ro
+      - p2-pgdata:/var/lib/postgresql/data
+      - ./db/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 20
       start_period: 10s
     networks:
-      - jokerarena-net
+      - pg-net
 
-  # ----------------------------------------------------------------------------
-  # 2. Base de Datos NoSQL: MongoDB 7 (Telemetry DB)
-  # ----------------------------------------------------------------------------
-  jokerarena-telemetry-db:
+  # --------------------------------------------------------------------------
+  # Datos 2 · MongoDB (NoSQL documental): telemetría
+  # --------------------------------------------------------------------------
+  jokerarena-mongo:
     image: mongo:7
-    container_name: jokerarena-telemetry-db
+    container_name: jokerarena-mongo
     restart: unless-stopped
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-admin}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Defina MONGO_ROOT_PASSWORD en .env}
-      MONGO_INITDB_DATABASE: ${MONGO_DB:-casino_games}
-    ports:
-      - "${MONGO_PORT:-27017}:27017"
+      MONGO_INITDB_DATABASE: telemetry
     volumes:
-      - mongodata:/data/db
-      - ./db/mongo/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+      - p2-mongodata:/data/db
+      - ./db/mongo/init.js:/docker-entrypoint-initdb.d/init.js:ro
     healthcheck:
-      test:
-        - "CMD-SHELL"
-        - >-
-          mongosh --quiet -u "$$MONGO_INITDB_ROOT_USERNAME" -p "$$MONGO_INITDB_ROOT_PASSWORD"
-          --authenticationDatabase admin --eval "db.adminCommand('ping').ok" | grep -q 1
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
       interval: 5s
       timeout: 10s
-      retries: 10
+      retries: 20
       start_period: 15s
     networks:
-      - jokerarena-net
+      - mongo-net
 
-  # ----------------------------------------------------------------------------
-  # 3. Lógica 2: Telemetry & Analytics Service (Python / FastAPI / gRPC)
-  # ----------------------------------------------------------------------------
-  jokerarena-telemetry-ms:
-    build:
-      context: ./jokerarena-telemetry-ms
-      dockerfile: Dockerfile
-    container_name: jokerarena-telemetry-ms
+  # --------------------------------------------------------------------------
+  # Datos 3 · Redis (NoSQL clave-valor): sesiones y cachés
+  # --------------------------------------------------------------------------
+  jokerarena-redis:
+    image: redis:7.4-alpine
+    container_name: jokerarena-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - p2-redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - redis-net
+
+  # --------------------------------------------------------------------------
+  # Datos 4 · Neo4j (NoSQL de grafos): ranking
+  # --------------------------------------------------------------------------
+  jokerarena-neo4j:
+    image: neo4j:5.26-community
+    container_name: jokerarena-neo4j
     restart: unless-stopped
     environment:
-      HTTP_PORT: 8000
-      GRPC_PORT: 50051
-      # La contraseña se codifica en código (urllib.parse.quote_plus): admite '@'.
-      MONGO_HOST: ${TELEMETRY_MONGO_HOST:-jokerarena-telemetry-db}
-      MONGO_PORT: ${TELEMETRY_MONGO_PORT:-27017}
-      MONGO_USER: ${TELEMETRY_MONGO_USER:-${MONGO_ROOT_USER:-admin}}
-      MONGO_PASSWORD: ${TELEMETRY_MONGO_PASSWORD:-${MONGO_ROOT_PASSWORD}}
-      MONGO_AUTH_SOURCE: ${MONGO_AUTH_SOURCE:-admin}
-      MONGO_DB: ${MONGO_DB:-casino_games}
-    ports:
-      - "${TELEMETRY_HTTP_PORT:-8000}:8000"
-      - "${TELEMETRY_GRPC_PORT:-50051}:50051"
-    depends_on:
-      jokerarena-telemetry-db:
-        condition: service_healthy
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?Defina NEO4J_PASSWORD en .env (mínimo 8 caracteres)}
+      NEO4J_server_memory_heap_max__size: 512m
+    volumes:
+      - p2-neo4jdata:/data
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 10s
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 >/dev/null || exit 1"]
+      interval: 5s
       timeout: 5s
-      retries: 5
-      start_period: 10s
+      retries: 40
+      start_period: 20s
     networks:
-      - jokerarena-net
+      - neo4j-net
 
-  # ----------------------------------------------------------------------------
-  # 4. Lógica 1: Game Engine & Session Manager (Go)
-  # ----------------------------------------------------------------------------
-  jokerarena-game-ms:
-    build:
-      context: ./jokerarena-game-ms
-      dockerfile: Dockerfile
-    container_name: jokerarena-game-ms
+  # --------------------------------------------------------------------------
+  # Asíncrono · RabbitMQ (exchange topic jokerarena.events)
+  # --------------------------------------------------------------------------
+  jokerarena-rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: jokerarena-rabbitmq
     restart: unless-stopped
     environment:
-      PORT: 8080
-      STORAGE_MODE: ${STORAGE_MODE:-postgres}
-      # La contraseña se codifica en código (url.UserPassword): admite '@'.
-      DB_HOST: ${GAME_DB_HOST:-jokerarena-game-db}
-      DB_PORT: ${GAME_DB_PORT:-5432}
-      DB_USER: ${GAME_DB_USER:-${POSTGRES_USER:-appuser}}
-      DB_PASSWORD: ${GAME_DB_PASSWORD:-${POSTGRES_PASSWORD}}
-      DB_NAME: ${GAME_DB_NAME:-${POSTGRES_DB:-appdb}}
-      DB_SSLMODE: ${GAME_DB_SSLMODE:-disable}
-      TELEMETRY_GRPC_ADDR: ${TELEMETRY_GRPC_ADDR:-jokerarena-telemetry-ms:50051}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
-    ports:
-      - "${GAME_ENGINE_PORT:-8080}:8080"
-    depends_on:
-      jokerarena-game-db:
-        condition: service_healthy
-      jokerarena-telemetry-ms:
-        condition: service_started
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-jokerarena}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Defina RABBITMQ_PASSWORD en .env}
+    volumes:
+      - p2-rabbitdata:/var/lib/rabbitmq
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 15s
     networks:
-      - jokerarena-net
-
-  # ----------------------------------------------------------------------------
-  # 5. Presentación: Web Frontend Client (React / TypeScript / Nginx)
-  # ----------------------------------------------------------------------------
-  jokerarena-fe:
-    build:
-      context: ./jokerarena-fe
-      dockerfile: Dockerfile
-    container_name: jokerarena-fe
-    restart: unless-stopped
-    ports:
-      - "${FRONTEND_PORT:-3000}:80"
-    depends_on:
-      jokerarena-game-ms:
-        condition: service_started
-      jokerarena-telemetry-ms:
-        condition: service_started
-    healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 5s
-    networks:
-      - jokerarena-net
+      - broker-net
 
 networks:
-  jokerarena-net:
+  # 1. Borde / Externa (DMZ pública): Reverse Proxy, Gateway, Web SSR
+  edge-net:
+    name: edge-net
     driver: bridge
 
+  # 2. Aplicación interna: comunicación entre microservicios
+  app-net:
+    name: app-net
+    driver: bridge
+    internal: true
+
+  # 3. Bus de eventos: RabbitMQ
+  broker-net:
+    name: broker-net
+    driver: bridge
+    internal: true
+
+  # 4. Datos relacionales: PostgreSQL
+  pg-net:
+    name: pg-net
+    driver: bridge
+    internal: true
+
+  # 5. Caché / Sesiones: Redis
+  redis-net:
+    name: redis-net
+    driver: bridge
+    internal: true
+
+  # 6. Datos documentales: MongoDB
+  mongo-net:
+    name: mongo-net
+    driver: bridge
+    internal: true
+
+  # 7. Grafos: Neo4j
+  neo4j-net:
+    name: neo4j-net
+    driver: bridge
+    internal: true
+
 volumes:
-  pgdata:
-  mongodata:
+  p2-pgdata:
+  p2-mongodata:
+  p2-redisdata:
+  p2-neo4jdata:
+  p2-rabbitdata:

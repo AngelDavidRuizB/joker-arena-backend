@@ -12,7 +12,11 @@ DEFAULT_GATEWAY = "https://localhost"
 
 
 class CliError(Exception):
-    """Error mostrado al usuario tal cual (en español)."""
+    """Error mostrado al usuario tal cual (en español). ``code`` trae el código del gateway."""
+
+    def __init__(self, message: str, code: str = ""):
+        super().__init__(message)
+        self.code = code
 
 
 def gateway_url() -> str:
@@ -156,15 +160,17 @@ class Gateway:
             body = {}
         if r.status_code >= 400:
             message = body.get("message") if isinstance(body, dict) else None
-            raise CliError(message or f"Error {r.status_code}")
+            code = body.get("error") if isinstance(body, dict) else None
+            raise CliError(message or f"Error {r.status_code}", code or "")
         return body
 
-    def enter(self, alias: str, password: Optional[str] = None) -> dict:
-        payload = {"alias": alias, **({"password": password} if password else {})}
+    def enter(self, user: str, password: str) -> dict:
+        """Registra la cuenta (usuario + contraseña) o inicia sesión si ya existe."""
+        payload = {"user": user, "password": password}
         try:
             return self._call("POST", "/api/auth/register", json=payload)
         except CliError as exc:
-            if "ya existe" not in str(exc):
+            if exc.code != "alias_taken":
                 raise
             return self._call("POST", "/api/auth/login", json=payload)
 
