@@ -9,6 +9,17 @@ cd "$(dirname "$0")/.."
 COMPOSE="docker compose -f docker-compose.p2.yml"
 GW="http://localhost:${GATEWAY_PORT:-8080}"
 WEB="http://localhost:${WEB_PORT:-3000}"
+CA_FILE="edge/certs/jokerarena-ca.crt"
+# En P3 el gateway y la web no publican puertos: todo entra por el reverse proxy (TLS).
+# Si existen los certificados y el proxy responde, las comprobaciones usan https://localhost.
+TLS=()
+if [ -f "$CA_FILE" ]; then
+  TLS=(--cacert "$CA_FILE")
+  curl -V 2>/dev/null | head -1 | grep -q Schannel && TLS+=(--ssl-no-revoke)
+  if [ "$(curl -s "${TLS[@]}" -o /dev/null -w '%{http_code}' --max-time 3 https://localhost/health)" = "200" ]; then
+    GW="https://localhost"
+  fi
+fi
 fail=0
 ok()   { printf '  \033[32m✔\033[0m %s\n' "$1"; }
 bad()  { printf '  \033[31m✘\033[0m %s\n' "$1"; fail=1; }
@@ -28,21 +39,21 @@ for c in $($COMPOSE ps --format '{{.Name}}'); do
   case "$st" in *healthy*) [[ "$st" == *unhealthy* ]] && bad "$c: $st" || ok "$c: $st";; *) bad "$c: $st";; esac
 done
 n=$($COMPOSE ps --format '{{.Name}}' | wc -l)
-# 14 = 8 servicios de lógica + gateway + 4 datos + broker. El cliente web (Next.js SSR)
-# vive en el repositorio joker-arena-frontend y se comprueba en el paso 5 si está arriba.
-[ "$n" -ge 14 ] && ok "$n contenedores (8 lógica + gateway + 4 datos + broker)" \
+# 15 = 8 servicios de lógica + gateway + reverse proxy + 4 datos + broker (14 sin el proxy).
+# El cliente web (Next.js SSR) vive en el repositorio joker-arena-frontend y se comprueba en el paso 5.
+[ "$n" -ge 14 ] && ok "$n contenedores (8 lógica + gateway + proxy + 4 datos + broker)" \
   || bad "se esperaban al menos 14 contenedores, hay $n"
 
 echo "4. Rutas a través del gateway ($GW)"
 check() { # método ruta código-esperado [args curl...]
   local m=$1 p=$2 want=$3; shift 3
-  local got; got=$(curl -s -o /dev/null -w '%{http_code}' -X "$m" "$GW$p" "$@")
+  local got; got=$(curl -s "${TLS[@]}" -o /dev/null -w '%{http_code}' -X "$m" "$GW$p" "$@")
   [ "$got" = "$want" ] && ok "$m $p → $got" || bad "$m $p → $got (esperado $want)"
 }
 check GET /health 200
 user="verify$RANDOM"
 password="verify-pass-$RANDOM"
-token=$(curl -s -X POST "$GW/api/auth/register" -H 'Content-Type: application/json' \
+token=$(curl -s "${TLS[@]}" -X POST "$GW/api/auth/register" -H 'Content-Type: application/json' \
   -d "{\"user\":\"$user\",\"password\":\"$password\",\"repeat_password\":\"$password\"}" \
   | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
 [ -n "$token" ] && ok "POST /api/auth/register (usuario + contraseña) → token JWT" || bad "no se obtuvo token"
@@ -61,14 +72,14 @@ check GET /admin/cluster/snapshot 403 -H "Authorization: Bearer $token"
 # Bloqueo por intentos fallidos: 5 contraseñas erróneas → 423 account_locked + Retry-After
 lockuser="lock$RANDOM"
 lockpass="lockout-$RANDOM"
-curl -s -o /dev/null -X POST "$GW/api/auth/register" -H 'Content-Type: application/json' \
+curl -s "${TLS[@]}" -o /dev/null -X POST "$GW/api/auth/register" -H 'Content-Type: application/json' \
   -d "{\"user\":\"$lockuser\",\"password\":\"$lockpass\",\"repeat_password\":\"$lockpass\"}"
 for _ in 1 2 3 4; do
-  curl -s -o /dev/null -X POST "$GW/api/auth/login" -H 'Content-Type: application/json' \
+  curl -s "${TLS[@]}" -o /dev/null -X POST "$GW/api/auth/login" -H 'Content-Type: application/json' \
     -d "{\"user\":\"$lockuser\",\"password\":\"mala-clave\"}"
   sleep 0.2
 done
-locked=$(curl -s -D /tmp/jkr_lock.h -o /dev/null -w '%{http_code}' -X POST "$GW/api/auth/login" \
+locked=$(curl -s "${TLS[@]}" -D /tmp/jkr_lock.h -o /dev/null -w '%{http_code}' -X POST "$GW/api/auth/login" \
   -H 'Content-Type: application/json' -d "{\"user\":\"$lockuser\",\"password\":\"mala-clave\"}")
 if [ "$locked" = "423" ] && grep -qi '^retry-after:' /tmp/jkr_lock.h; then
   ok "5 intentos fallidos → 423 account_locked (Retry-After presente)"
@@ -76,11 +87,20 @@ else
   bad "bloqueo por intentos fallidos → $locked (esperado 423)"
 fi
 
-echo "5. Cliente web SSR ($WEB · repositorio joker-arena-frontend)"
-code=$(curl -s -o /tmp/jkr_lb.html -w '%{http_code}' --max-time 5 "$WEB/leaderboard")
+echo "5. Cliente web SSR (repositorio joker-arena-frontend)"
+# En P3 el cliente web no publica puertos: se entra por el reverse proxy (https://localhost).
+CA_FILE="edge/certs/jokerarena-ca.crt"
+code=000
+if [ -f "$CA_FILE" ]; then
+  code=$(curl -s --cacert "$CA_FILE" -o /tmp/jkr_lb.html -w '%{http_code}' --max-time 5 "https://localhost/leaderboard")
+fi
+if [ "$code" != "200" ]; then
+  # Compatibilidad P2 / desarrollo local: la web publicada en el puerto 3000.
+  code=$(curl -s -o /tmp/jkr_lb.html -w '%{http_code}' --max-time 5 "$WEB/leaderboard")
+fi
 [ -z "$code" ] && code=000
 if [ "$code" = "000" ]; then
-  warn "cliente web no disponible en $WEB; se omite (cd ../joker-arena-frontend && docker compose up -d --build --wait)"
+  warn "cliente web no disponible (ni por https://localhost ni en $WEB); se omite (cd ../joker-arena-frontend && docker compose up -d --build --wait)"
 elif [ "$code" = "200" ] && grep -q "Salón de la fama" /tmp/jkr_lb.html; then
   ok "/leaderboard renderizado en el servidor"
 else
